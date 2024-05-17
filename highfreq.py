@@ -44,7 +44,7 @@ def get_intraday_distribution(start: str, stop: str) -> pd.DataFrame:
     trading_days = ft.get_trading_days(QTD_URI, start, stop)
     return pd.concat(Parallel(n_jobs=-1, backend='loky')(
         delayed(_get)(date) for date in tqdm(list(trading_days))
-    ), axis=0).loc(axis=0)[:, start:stop]
+    ), axis=0).sort_index().loc(axis=0)[:, start:stop]
 
 def get_long_short_ratio(start: str, stop: str):
     def _get(_start, _stop):

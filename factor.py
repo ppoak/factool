@@ -96,8 +96,8 @@ def get_price(
 
 def save_data(
     data: pd.DataFrame | pd.Series, 
-    name: str, 
     uri: str,
+    name: str = None, 
     code_level: str = 'order_book_id',
     date_level: str = 'date',
 ):
@@ -106,7 +106,10 @@ def save_data(
     if isinstance(data, pd.DataFrame) and data.index.nlevels == 1:
         data = data.stack(dropna=True).swaplevel()
         data.index.names = [code_level, date_level]
-    data = data.to_frame(name)
+    if isinstance(data, pd.Series):
+        if name is None:
+            raise ValueError('name cannot be None')
+        data = data.to_frame(name)
     update_data = data[data.columns[data.columns.isin(table.columns)]]
     add_data = data[data.columns[~data.columns.isin(table.columns)]]
     if not update_data.empty:
