@@ -1,4 +1,3 @@
-import os
 import quool as q
 import numpy as np
 import pandas as pd
