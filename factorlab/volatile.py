@@ -134,7 +134,7 @@ class VolatileFactor(BaseFactor):
         return res
     
     def get_capm_std_3m(self,date: str):
-        #近3个月内CAPM回归残差的标准差
+        #近3个月内CAPM回归残差
         rollback = fqtd.get_trading_days_rollback(date, 66)
         stock_ret = fqtd.read('close',start=rollback, stop=date).ffill().pct_change().tail(66)
         market_ret = fidxqtd.read('close',start=rollback, stop=date).loc[:,'000001.XSHG'].ffill().pct_change().tail(66)  #上证综指代表市场收益率
@@ -147,7 +147,7 @@ class VolatileFactor(BaseFactor):
         res.name = date
         return res
     
-    def get_ff3_std_3m(self,date: str):
+    def get_ff3_3m(self,date: str):
         #近3个月Fama-French三因子回归残差的标准差
         rollback = fqtd.get_trading_days_rollback(date, 66)
         price = fqtd.read("close", start=rollback, stop=date)
@@ -158,7 +158,7 @@ class VolatileFactor(BaseFactor):
         shares = fqtd.read("circulation_a", start=rollback, stop=date)
         adjfactor = fqtd.read("adjfactor", start=rollback, stop=date)
         market_cap = (shares * price * adjfactor).tail(66)
-        sorted_market_cap = market_cap.mean().sort_values()
+        sorted_market_cap = market_cap.mean().sort_values()  #将序列股票分为2组
         midpoint = len(sorted_market_cap) // 2
         S = sorted_market_cap.index[:midpoint]
         B = sorted_market_cap.index[midpoint:]
@@ -176,7 +176,7 @@ class VolatileFactor(BaseFactor):
         H = sorted_bm.index[sorted_bm > p70]
 
         #将截面股票分为6组
-        SL = stock_ret[S.intersection(L)].mean(axis=1)
+        SL = stock_ret[S.intersection(L)].mean(axis=1) #交集
         SM = stock_ret[S.intersection(M)].mean(axis=1)
         SH = stock_ret[S.intersection(H)].mean(axis=1)
 
@@ -187,10 +187,58 @@ class VolatileFactor(BaseFactor):
         SMB = (SL + SM + SH) / 3 - (BL + BM + BH) / 3
         HML = (SH + BH) / 2 - (SL + BL) / 2
 
-        # 计算三因子回归残差的标准差
-        X = sm.add_constant(pd.DataFrame({'Market_Return': market_ret, 'SMB': SMB, 'HML': HML}))
+        # 计算三因子回归残差
+        X = sm.add_constant(pd.DataFrame({'Market_Return': market_ret, 'SMB': SMB, 'HML': HML}).fillna(0))
         Y = stock_ret
         model = sm.OLS(Y, X).fit()
-        res = model.resid.std()
+        res = model.resid
+        return res
+    
+    def get_ff3_std_3m(self,date: str):
+        res = self.get_ff3_3m(date) 
+        res = res.std()
+        res.name = date
+        return res
+
+    def get_ff3_std_up_3m(self,date: str):
+        res = self.get_ff3_3m(date) 
+        res = res[res > 0]
+        res = res.std()
+        res.name = date
+        return res
+    
+    def get_ff3_std_down_3m(self,date: str):
+        res = self.get_ff3_3m(date) 
+        res = res[res < 0]
+        res = res.std()
+        res.name = date
+        return res
+    
+    def get_ff3_std_ud_3m(self,date: str):
+        down = self.get_ff3_std_down_3m(date) 
+        up = self.get_ff3_std_up_3m(date)
+        res = down + up
+        res.name = date
+        return res
+    
+    def get_rise_std_4m(self,date: str):
+        #近4个月日内最大涨幅波动率
+        rollback = fqtd.get_trading_days_rollback(date, 88)
+        df = fqtm.read("high, open", start=rollback, stop=date).tail(88)
+        max = df.groupby('date')['high'].max()
+        ben = df.groupby('date')['open'].first()
+        rise = (max - ben) / ben
+        res = rise.std()
+        res.name = date
+        return res
+    
+    def get_rise_fall_std_5m(self,date: str):
+        #近5个月日内最大涨幅波动率减去日内最大跌幅波动率
+        rollback = fqtd.get_trading_days_rollback(date, 110).tail(110)
+        df = fqtm.read("high, low, open", start=rollback, stop=date)
+        max = df.groupby('date')['high'].max()
+        low = df.groupby('date')['low'].min()
+        diff = (max - low) / low
+        res = diff.std()
         res.name = date
         return res
