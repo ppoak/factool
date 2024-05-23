@@ -1,8 +1,8 @@
 import numpy as np
 import pandas as pd
 import statsmodels.api as sm
-from .base import (
-    fqtd, fqtm, fidxwgt, fidxqtd, BaseFactor
+from base import (
+    fqtd, fqtm, fidxwgt, fidxqtd, ffin, BaseFactor
 )
 
 
@@ -99,5 +99,98 @@ class VolatileFactor(BaseFactor):
         market_returns = market_prices.pct_change(fill_method=None).tail(252).ewm(halflife=63).mean()
         res = self.calculate_beta(stock_returns, market_returns)
         res.index.name = 'order_book_id'
+        res.name = date
+        return res
+    
+    def get_fright_degree(self,date: str):
+        #惊恐度
+        rollback = fqtd.get_trading_days_rollback(date, 20)
+        market_ret = fidxqtd.read('close',start=rollback, stop=date).loc[:,'000985.XSHG'].ffill().pct_change().tail(20)  #中证全指代表市场收益率
+        stock_ret = fqtd.read('close',start=rollback, stop=date).ffill().pct_change().tail(20)
+        deviation = (stock_ret - market_ret.iloc[0]).abs()
+        stand = (stock_ret).abs() + (market_ret).abs().iloc[0] + 0.1
+        fright = deviation/stand
+        
+        #日内标准差
+        df = fqtm.read('close',start = rollback, stop = date + pd.Timedelta(days=1))
+        daily_std = df.groupby(df.index.date).std().tail(20)
+
+        #加权调整收益率
+        adj_ret = fright * daily_std * stock_ret
+
+        fright_ret = adj_ret.mean()
+        fright_vol = adj_ret.std()
+
+        res = (fright_ret + fright_vol)/2
+        res.name = date
+        return res
+
+    def get_std_4m(self,date: str):
+        #近4个月日收益率序列的标准差
+        rollback = fqtd.get_trading_days_rollback(date, 88)
+        stock_ret = fqtd.read('close',start=rollback, stop=date).ffill().pct_change().tail(88)
+        res = stock_ret.std()
+        res.name = date
+        return res
+    
+    def get_capm_std_3m(self,date: str):
+        #近3个月内CAPM回归残差的标准差
+        rollback = fqtd.get_trading_days_rollback(date, 66)
+        stock_ret = fqtd.read('close',start=rollback, stop=date).ffill().pct_change().tail(66)
+        market_ret = fidxqtd.read('close',start=rollback, stop=date).loc[:,'000001.XSHG'].ffill().pct_change().tail(66)  #上证综指代表市场收益率
+        X = sm.add_constant(market_ret)
+        Y = stock_ret
+        model = sm.OLS(Y, X).fit()
+
+        # 计算残差
+        res = model.resid.std()
+        res.name = date
+        return res
+    
+    def get_ff3_std_3m(self,date: str):
+        #近3个月Fama-French三因子回归残差的标准差
+        rollback = fqtd.get_trading_days_rollback(date, 66)
+        price = fqtd.read("close", start=rollback, stop=date)
+        stock_ret = price.ffill().pct_change().tail(66)
+        market_ret = fidxqtd.read('close',start=rollback, stop=date).loc[:,'000001.XSHG'].ffill().pct_change().tail(66)  #上证综指代表市场收益率
+        
+        #市值因子
+        shares = fqtd.read("circulation_a", start=rollback, stop=date)
+        adjfactor = fqtd.read("adjfactor", start=rollback, stop=date)
+        market_cap = (shares * price * adjfactor).tail(66)
+        sorted_market_cap = market_cap.mean().sort_values()
+        midpoint = len(sorted_market_cap) // 2
+        S = sorted_market_cap.index[:midpoint]
+        B = sorted_market_cap.index[midpoint:]
+
+        # 规模因子
+        trading_days = fqtd.get_trading_days(start=rollback, stop=date)
+        bv = ffin.read('total_equity', start=rollback, stop=date)
+        bv = bv.reindex(trading_days).ffill().bfill().tail(66)
+        bm = bv / market_cap
+        sorted_bm = bm.mean().sort_values()
+        p30 = sorted_bm.quantile(0.3)
+        p70 = sorted_bm.quantile(0.7)
+        L = sorted_bm.index[sorted_bm <= p30]
+        M = sorted_bm.index[(sorted_bm > p30) & (sorted_bm <= p70)]
+        H = sorted_bm.index[sorted_bm > p70]
+
+        #将截面股票分为6组
+        SL = stock_ret[S.intersection(L)].mean(axis=1)
+        SM = stock_ret[S.intersection(M)].mean(axis=1)
+        SH = stock_ret[S.intersection(H)].mean(axis=1)
+
+        BL = stock_ret[B.intersection(L)].mean(axis=1)
+        BM = stock_ret[B.intersection(M)].mean(axis=1)
+        BH = stock_ret[B.intersection(H)].mean(axis=1)
+
+        SMB = (SL + SM + SH) / 3 - (BL + BM + BH) / 3
+        HML = (SH + BH) / 2 - (SL + BL) / 2
+
+        # 计算三因子回归残差的标准差
+        X = sm.add_constant(pd.DataFrame({'Market_Return': market_ret, 'SMB': SMB, 'HML': HML}))
+        Y = stock_ret
+        model = sm.OLS(Y, X).fit()
+        res = model.resid.std()
         res.name = date
         return res
