@@ -14,8 +14,17 @@ from .capflow import CapFlowFactor
 from .evaluation import EvaluationFactor
 from .revmom import MomentumFactor
 
-class Factor(MarketSizeFactor, RetDistFactor, DeraPriceFactor, VolDistFactor, VolatileFactor, CapFlowFactor, EvaluationFactor, MomentumFactor):
 
+class Factor(
+    MarketSizeFactor, 
+    RetDistFactor, 
+    DeraPriceFactor, 
+    VolDistFactor, 
+    VolatileFactor, 
+    CapFlowFactor, 
+    EvaluationFactor, 
+    MomentumFactor
+):
     pass
     
 factor = Factor("./data/factor", code_level="order_book_id", date_level="date")

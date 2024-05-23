@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 import statsmodels.api as sm
-from base import (
+from .base import (
     fqtd, fqtm, fidxwgt, fidxqtd, ffin, BaseFactor
 )
 
