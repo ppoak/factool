@@ -6,13 +6,12 @@ from .base import (
 
     
 class MomentumFactor(BaseFactor):
-    def get_rstr(self, date: str): # with a lag of L=21 tradingdays
+    def get_rstr(self, date: str): # 不包含最近的21天
         rollback = fqtd.get_trading_days_rollback(date, 525)
-        prices = fqtd.read("close", start=rollback, stop=date)
-        adjfactor = fqtd.read("adjfactor", start=rollback, stop=date)
-        prices_adj = prices * adjfactor
-        ret  = np.log(1 + prices_adj.pct_change(fill_method=None)).ewm(halflife=126).mean()
-        res = ret.iloc[:504].sum()
+        price = fqtd.read("close", start=rollback, stop=date)
+        _adj= fqtd.read("adjfactor", start=rollback, stop=date)
+        stock_ret  = np.log(1 + (price * _adj).ffill().pct_change()).tail(525).sort_index(ascending=False).ewm(halflife=126).mean()
+        res = stock_ret.tail(504).sum()
         res.name = date
         return res
     
