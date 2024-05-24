@@ -26,14 +26,11 @@ class VolatileFactor(BaseFactor):
 
     def get_dastd(self, date: str):
         rollback = fqtd.get_trading_days_rollback(date, 252)
-        prices = fqtd.read("close", start=rollback, stop=date)
-        adjfactor = fqtd.read("adjfactor", start=rollback, stop=date)
-        prices_adj = prices * adjfactor
-        market_prices = fidxqtd.read('close',start=rollback, stop=date).loc[:,'000001.XSHG']
-        stock_ret = prices_adj.pct_change(fill_method=None)
-        market_ret = market_prices.pct_change(fill_method=None)
-        excess_ret = stock_ret.subtract(market_ret, axis=0)
-        res = np.sqrt(((excess_ret - excess_ret.mean()) ** 2).ewm(halflife=42).mean().sum())
+        price = fqtd.read("close", start=rollback, stop=date)
+        _adj = fqtd.read("adjfactor", start=rollback, stop=date)
+        market_price = fidxqtd.read('close',start=rollback, stop=date).loc[:,'000001.XSHG']
+        excess_ret = ((price * _adj).subtract(market_price, axis=0)).ffill().pct_change().tail(252)
+        res = np.sqrt(((excess_ret - excess_ret.mean()) ** 2).sort_index(ascending=False).ewm(halflife=42).mean().sum())
         return res * 0.74
     
     def get_cmra(self, date: str):
@@ -106,8 +103,8 @@ class VolatileFactor(BaseFactor):
         price = fqtd.read("close", start=rollback, stop=date)
         _adj= fqtd.read("adjfactor", start=rollback, stop=date)
         stock_ret = (price * _adj).ffill().pct_change().tail(20)
-        deviation = (stock_ret - market_ret.iloc[0]).abs()
-        stand = (stock_ret).abs() + (market_ret).abs().iloc[0] + 0.1
+        deviation = (stock_ret.subtract(market_ret, axis=0)).abs()
+        stand = (stock_ret.abs()).add(market_ret.abs(), axis=0)+ 0.1
         fright = deviation/stand
         
         #日内标准差
