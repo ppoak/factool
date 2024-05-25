@@ -6,13 +6,6 @@ from .base import (
 
 
 class DeraPriceFactor(BaseFactor):
-    def standardize(self, data: pd.Series ,date: pd.Timestamp) -> pd.Series:
-        weight = fidxwgt.read('000001.XSHG',start=date, stop=date).loc[date]
-        mean = np.sum(weight * data)
-        std = data.std()
-        res = (data - mean) / std
-        return res
-
     def get_volume_weighted_price(self, date: pd.Timestamp):
         p = fqtm.read("close", start=date, stop=date + pd.Timedelta(days=1))
         vol = fqtm.read("volume", start=date, stop=date + pd.Timedelta(days=1))

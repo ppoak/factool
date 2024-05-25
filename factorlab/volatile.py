@@ -9,7 +9,7 @@ from .base import (
 class VolatileFactor(BaseFactor):
 
     def standardize(self, data: pd.Series ,date: pd.Timestamp) -> pd.Series:
-        weight = fidxwgt.read('000001.XSHG',start=date, stop=date).loc[date]
+        weight = fidxwgt.read('000985.XSHG',start=date, stop=date).loc[date]
         mean = np.sum(weight * data)
         std = data.std()
         res = (data - mean) / std
@@ -60,16 +60,15 @@ class VolatileFactor(BaseFactor):
         X = sm.add_constant(market_ret)
         Y = stock_ret
         model = sm.OLS(Y, X).fit()
-
         res = model.resid.std()
         res.index.name = 'order_book_id'
         res.name = date
         return res * 0.1
 
     def get_residual_volatility(self, date: str):
-        hsigma = self.standardize(self.get_hsigma(date),date).fillna(0)
-        cmra = self.standardize(self.get_cmra(date),date).fillna(0)
-        dastd = self.standardize(self.get_dastd(date),date).fillna(0)
+        hsigma = self.standardize(self.get_hsigma(date),date)
+        cmra = self.standardize(self.get_cmra(date),date)
+        dastd = self.standardize(self.get_dastd(date),date)
         res = dastd + cmra + hsigma
         res.name = date
         return res
