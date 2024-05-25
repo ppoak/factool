@@ -25,49 +25,46 @@ class VolatileFactor(BaseFactor):
         return res
 
     def get_dastd(self, date: str):
+        #过去252个交易日日超额收益率波动率
         rollback = fqtd.get_trading_days_rollback(date, 252)
         price = fqtd.read("close", start=rollback, stop=date)
         _adj = fqtd.read("adjfactor", start=rollback, stop=date)
-        market_price = fidxqtd.read('close',start=rollback, stop=date).loc[:,'000001.XSHG']
-        excess_ret = ((price * _adj).subtract(market_price, axis=0)).ffill().pct_change().tail(252)
-        res = np.sqrt(((excess_ret - excess_ret.mean()) ** 2).sort_index(ascending=False).ewm(halflife=42).mean().sum())
+
+        #rf=0,用stock_ret代替excess_ret
+        stock_ret = (price * _adj).pct_change(fill_method=None).tail(252) 
+        res = np.sqrt(((stock_ret - stock_ret.mean()) ** 2).sort_index(ascending=False).ewm(halflife=42).mean().sum())
         return res * 0.74
     
     def get_cmra(self, date: str):
+        #过去12个月超额收益的离差
         rollback = fqtd.get_trading_days_rollback(date, 252)
-        prices = fqtd.read("close", start=rollback, stop=date)
-        adjfactor = fqtd.read("adjfactor", start=rollback, stop=date)
-        prices_adj = prices * adjfactor
-        market_prices = fidxqtd.read('close',start=rollback, stop=date).loc[:,'000001.XSHG']
-        stock_ret = np.log(1 + prices_adj.pct_change(fill_method=None))
-        market_ret = np.log(1 + market_prices.pct_change(fill_method=None))
+        price = fqtd.read("close", start=rollback, stop=date)
+        _adj = fqtd.read("adjfactor", start=rollback, stop=date)
+        stock_ret = np.log(1 + (price * _adj).pct_change(fill_method=None)).tail(252)
+
         date_intervals = pd.cut(stock_ret.index, bins=12, labels=False)
-        zt = stock_ret.subtract(market_ret, axis=0).groupby(date_intervals).sum()
+        zt = (1 + stock_ret).groupby(date_intervals).prod() #compounded
         zt_max = zt.loc[zt.sum(axis=1).idxmax(),:]
         zt_min = zt.loc[zt.sum(axis=1).idxmin(),:]
-        res = zt_max - zt_min
+        res = np.log(zt_max) - np.log(zt_min)
         return res * 0.16
     
     def get_hsigma(self, date: str):
+        #beta的残差波动率
         rollback = fqtd.get_trading_days_rollback(date, 252)
-        prices = fqtd.read("close", start=rollback, stop=date)
-        adjfactor = fqtd.read("adjfactor", start=rollback, stop=date)
-        prices_adj = prices * adjfactor
-        market_prices = fidxqtd.read('close',start=rollback, stop=date).loc[:,'000001.XSHG']
-        stock_returns = prices_adj.pct_change(fill_method=None).tail(252).ewm(halflife=63).mean()
-        market_returns = market_prices.pct_change(fill_method=None).tail(252).ewm(halflife=63).mean()
-        res = self.calculate_resid_std(stock_returns, market_returns)
-        res.index.name = 'order_book_id'
-        return res * 0.1
+        price = fqtd.read("close", start=rollback, stop=date)
+        _adj= fqtd.read("adjfactor", start=rollback, stop=date)
+        stock_ret = (price * _adj).pct_change(fill_method=None).tail(252).sort_index(ascending=False).ewm(halflife=63).mean()
+        market_ret = fidxqtd.read('close', code='000985.XSHG', start=rollback, stop=date).pct_change(fill_method=None).tail(252).sort_index(ascending=False).ewm(halflife=63).mean().loc[:,'000985.XSHG']
 
-    def calculate_resid_std(self, stock_returns, market_returns):
-        X = sm.add_constant(market_returns.values)
-        res = {}
-        for code in stock_returns.columns:
-            resid = sm.OLS(stock_returns[code].values, X).fit().resid.std()
-            res[code] = resid
-        res = pd.Series(res, index=stock_returns.columns)
-        return res
+        X = sm.add_constant(market_ret)
+        Y = stock_ret
+        model = sm.OLS(Y, X).fit()
+
+        res = model.resid.std()
+        res.index.name = 'order_book_id'
+        res.name = date
+        return res * 0.1
 
     def get_residual_volatility(self, date: str):
         hsigma = self.standardize(self.get_hsigma(date),date).fillna(0)
@@ -81,8 +78,8 @@ class VolatileFactor(BaseFactor):
         rollback = fqtd.get_trading_days_rollback(date, 252)
         price = fqtd.read("close", start=rollback, stop=date)
         _adj= fqtd.read("adjfactor", start=rollback, stop=date)
-        stock_ret = (price * _adj).ffill().pct_change().tail(252).sort_index(ascending=False).ewm(halflife=63).mean()
-        market_ret = fidxqtd.read('close',start=rollback, stop=date).loc[:,'000001.XSHG'].ffill().pct_change().tail(252).sort_index(ascending=False).ewm(halflife=63).mean()
+        stock_ret = (price * _adj).pct_change(fill_method=None).tail(252).sort_index(ascending=False).ewm(halflife=63).mean()
+        market_ret = fidxqtd.read('close', code='000985.XSHG', start=rollback, stop=date).pct_change(fill_method=None).tail(252).sort_index(ascending=False).ewm(halflife=63).mean().loc[:,'000985.XSHG']
 
         res = {}
         var = np.var(market_ret)
@@ -136,14 +133,15 @@ class VolatileFactor(BaseFactor):
         rollback = fqtd.get_trading_days_rollback(date, 66)
         price = fqtd.read("close", start=rollback, stop=date)
         _adj= fqtd.read("adjfactor", start=rollback, stop=date)
-        stock_ret = (price * _adj).ffill().pct_change().tail(66)
-        market_ret = fidxqtd.read('close',start=rollback, stop=date).loc[:,'000001.XSHG'].ffill().pct_change().tail(66)  #上证综指代表市场收益率
+        stock_ret = (price * _adj).pct_change(fill_method=None).tail(66)
+        market_ret = fidxqtd.read('close',code='000001.XSHG', start=rollback, stop=date).pct_change(fill_method=None).tail(66)  #上证综指代表市场收益率
         X = sm.add_constant(market_ret)
         Y = stock_ret
         model = sm.OLS(Y, X).fit()
 
         # 计算残差
         res = model.resid.std()
+        res.index.name = 'order_book_id'
         res.name = date
         return res
     

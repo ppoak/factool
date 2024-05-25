@@ -24,6 +24,8 @@ class MarketSizeFactor(BaseFactor):
         res = res.resid
         mean = res.mean()
         std = res.std()
+
+        #缩尾和标准化
         res = res.clip(mean - 3 * std, mean + 3 * std)
         res = (res - res.mean()) / res.std()
         res.name = date
