@@ -7,17 +7,18 @@ from .base import (
 
 class EvaluationFactor(BaseFactor):
 
-    def get_barra_bp_ratio(self, date: str | pd.Timestamp) -> pd.Series:
+    def get_book_to_price(self, date: str | pd.Timestamp) -> pd.Series:
+        # 当前公司的账面价值
         rollback = fqtd.get_trading_days_rollback(date, rollback=252)
         trading_days = fqtd.get_trading_days(start=rollback, stop=date)
-        equity = ffin.read('total_equity', start=rollback, stop=date)
-        equity = equity.reindex(trading_days).ffill()
-        equity = equity.loc[date]
-        price = fqtd.read('close', start=date, stop=date).loc[date]
-        adjfactor = fqtd.read('adjfactor', start=date, stop=date).loc[date]
-        shares = fqtd.read('circulation_a', start=date, stop=date).loc[date]
-        size = price * adjfactor * shares
-        res = equity / size
+        bv = ffin.read('total_equity', start=rollback, stop=date).reindex(trading_days).ffill().loc[date]
+
+        # 当前公司的市值
+        price = fqtd.read('close', start=date, stop=date)
+        _adj = fqtd.read('adjfactor', start=date, stop=date)
+        shares = fqtd.read('circulation_a', start=date, stop=date)
+        size = (price * _adj * shares).loc[date]
+        res = bv / size
         res.name = date
         return res
     
@@ -130,9 +131,35 @@ class EvaluationFactor(BaseFactor):
         res = mlev + blev + dtoa
         return res
     
-    def standardize(self, data: pd.Series ,date: pd.Timestamp) -> pd.Series:
-        weight = fidxwgt.read('000001.XSHG',start=date, stop=date).loc[date]
-        mean = np.sum(weight * data)
-        std = data.std()
-        res = (data - mean) / std
+    def get_liquidity(self, date: pd.Timestamp) -> pd.DataFrame:
+        stom = self.standardize(self.get_stom(date),date).fillna(0)
+        stoq = self.standardize(self.get_stoq(date),date).fillna(0)
+        stoa = self.standardize(self.get_stoa(date),date).fillna(0)
+        res = stom*0.35 + stoq*0.35 + stoa*0.3 
+        res.name = date
         return res
+
+    def get_stom(self, date: str | pd.Timestamp) -> pd.Series:
+        rollback = fqtd.get_trading_days_rollback(date, 20)
+        volume = fqtd.read("volume", start=rollback, stop=date)
+        shares = fqtd.read("circulation_a", start=rollback, stop=date)
+        res = np.log((volume/shares).sum(axis=0) + 1e-6)
+        return res
+    
+    def get_stoq(self, date: str | pd.Timestamp) -> pd.Series:
+        stom = np.exp(self.get_stom(date))
+        for i in range(1, 3):
+             rollback = fqtd.get_trading_days_rollback(date, 21*i)
+             stom_2 = np.exp(self.get_stom(rollback))
+             stom += stom_2
+        res = np.log(stom/3 + 1e-6)
+        return res  
+    
+    def get_stoa(self, date: str | pd.Timestamp) -> pd.Series:
+        stom = np.exp(self.get_stom(date))
+        for i in range(1, 12):
+             rollback = fqtd.get_trading_days_rollback(date, 21*i)
+             stom_2 = np.exp(self.get_stom(rollback))
+             stom += stom_2
+        res = np.log(stom/12 + 1e-6)
+        return res 
