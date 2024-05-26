@@ -70,7 +70,7 @@ class EvaluationFactor(BaseFactor):
 
     def get_barra_leverage(self, date: str | pd.Timestamp) -> pd.Series:
         res = self.get_mlev(date) + self.get_blev(date) + self.get_dtoa(date)
-s        res.name = date
+        res.name = date
         return res
 
     def get_stom(self, date: str | pd.Timestamp) -> pd.Series:
