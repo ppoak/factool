@@ -132,34 +132,30 @@ class EvaluationFactor(BaseFactor):
         return res
     
     def get_liquidity(self, date: pd.Timestamp) -> pd.DataFrame:
-        stom = self.standardize(self.get_stom(date),date).fillna(0)
-        stoq = self.standardize(self.get_stoq(date),date).fillna(0)
-        stoa = self.standardize(self.get_stoa(date),date).fillna(0)
-        res = stom*0.35 + stoq*0.35 + stoa*0.3 
+        res = self.get_stom(date) + self.get_stoq(date) + self.get_stoa(date)
         res.name = date
         return res
 
     def get_stom(self, date: str | pd.Timestamp) -> pd.Series:
-        rollback = fqtd.get_trading_days_rollback(date, 20)
-        volume = fqtd.read("volume", start=rollback, stop=date)
-        shares = fqtd.read("circulation_a", start=rollback, stop=date)
-        res = np.log((volume/shares).sum(axis=0) + 1e-6)
-        return res
+        #月换手率
+        rollback = fqtd.get_trading_days_rollback(date, 21)
+        turnover = fqtd.read("turnover", start=rollback, stop=date).tail(21).sum()
+        res = np.log(turnover + 1e-6)
+        # res = self.standardize(res, date)
+        return res * 0.35
     
     def get_stoq(self, date: str | pd.Timestamp) -> pd.Series:
-        stom = np.exp(self.get_stom(date))
-        for i in range(1, 3):
-             rollback = fqtd.get_trading_days_rollback(date, 21*i)
-             stom_2 = np.exp(self.get_stom(rollback))
-             stom += stom_2
-        res = np.log(stom/3 + 1e-6)
-        return res  
+        #季度换手率均值
+        rollback = fqtd.get_trading_days_rollback(date, 63)
+        turnover = fqtd.read("turnover", start=rollback, stop=date).tail(63).sum()
+        res = np.log(turnover/3 + 1e-6)
+        # res = self.standardize(res, date)
+        return res * 0.35
     
     def get_stoa(self, date: str | pd.Timestamp) -> pd.Series:
-        stom = np.exp(self.get_stom(date))
-        for i in range(1, 12):
-             rollback = fqtd.get_trading_days_rollback(date, 21*i)
-             stom_2 = np.exp(self.get_stom(rollback))
-             stom += stom_2
-        res = np.log(stom/12 + 1e-6)
-        return res 
+        #年换手率均值
+        rollback = fqtd.get_trading_days_rollback(date, 252)
+        turnover = fqtd.read("turnover", start=rollback, stop=date).tail(252).sum()
+        res = np.log(turnover/12 + 1e-6)
+        # res = self.standardize(res, date)
+        return res * 0.3 

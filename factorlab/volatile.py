@@ -33,6 +33,7 @@ class VolatileFactor(BaseFactor):
         #rf=0,用stock_ret代替excess_ret
         stock_ret = (price * _adj).pct_change(fill_method=None).tail(252) 
         res = np.sqrt(((stock_ret - stock_ret.mean()) ** 2).sort_index(ascending=False).ewm(halflife=42).mean().sum())
+        res = self.standardize(res, date)
         return res * 0.74
     
     def get_cmra(self, date: str):
@@ -46,7 +47,8 @@ class VolatileFactor(BaseFactor):
         zt = (1 + stock_ret).groupby(date_intervals).prod() #compounded
         zt_max = zt.loc[zt.sum(axis=1).idxmax(),:]
         zt_min = zt.loc[zt.sum(axis=1).idxmin(),:]
-        res = np.log(zt_max) - np.log(zt_min)
+        res = np.log(1 + zt_max) - np.log(1 + zt_min)
+        res = self.standardize(res, date)
         return res * 0.16
     
     def get_hsigma(self, date: str):
@@ -61,15 +63,13 @@ class VolatileFactor(BaseFactor):
         Y = stock_ret
         model = sm.OLS(Y, X).fit()
         res = model.resid.std()
+        res = self.standardize(res, date)
         res.index.name = 'order_book_id'
-        res.name = date
         return res * 0.1
 
     def get_residual_volatility(self, date: str):
-        hsigma = self.standardize(self.get_hsigma(date),date)
-        cmra = self.standardize(self.get_cmra(date),date)
-        dastd = self.standardize(self.get_dastd(date),date)
-        res = dastd + cmra + hsigma
+        res = self.get_hsigma(date) + self.get_cmra(date) + self.get_dastd(date)
+        res.index.name = 'order_book_id'
         res.name = date
         return res
 
