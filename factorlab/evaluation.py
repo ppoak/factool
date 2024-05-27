@@ -38,6 +38,7 @@ class EvaluationFactor(BaseFactor):
         shares = fqtd.read('circulation_a', start=date, stop=date)
         me = (price * _adj * shares).loc[date].fillna(0)
         res = (me + ld + pe)/ me
+        res = self.standardize(res, date)
         return res * 0.38
 
     def get_dtoa(self, date: str | pd.Timestamp) -> pd.Series:
@@ -50,6 +51,7 @@ class EvaluationFactor(BaseFactor):
         #总负债账面价值
         td = ffin.read('total_liabilities', start=rollback, stop=date).reindex(trading_days).ffill().loc[date].fillna(0)
         res = td / ta
+        res = self.standardize(res, date)
         return res * 0.35
     
     def get_blev(self, date: str | pd.Timestamp) -> pd.Series:
@@ -66,6 +68,7 @@ class EvaluationFactor(BaseFactor):
         bv = ffin.read('total_equity', start=rollback, stop=date).reindex(trading_days).ffill().loc[date].fillna(0)
         be = bv - pe
         res = (be + ld + pe) / be
+        res = self.standardize(res, date)
         return res * 0.27
 
     def get_barra_leverage(self, date: str | pd.Timestamp) -> pd.Series:

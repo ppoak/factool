@@ -9,6 +9,7 @@ from .base import (
 class VolatileFactor(BaseFactor):
 
     def standardize(self, data: pd.Series ,date: pd.Timestamp) -> pd.Series:
+        data = data.replace([np.inf, -np.inf], np.nan).dropna()
         weight = fidxwgt.read('000985.XSHG',start=date, stop=date).loc[date]
         mean = np.sum(weight * data)
         std = data.std()
@@ -95,10 +96,10 @@ class VolatileFactor(BaseFactor):
     def get_fright_degree(self,date: str):
         #惊恐度
         rollback = fqtd.get_trading_days_rollback(date, 20)
-        market_ret = fidxqtd.read('close',start=rollback, stop=date).loc[:,'000985.XSHG'].ffill().pct_change().tail(20)  #中证全指代表市场收益率
+        market_ret = fidxqtd.read('close', code='000985.XSHG', start=rollback, stop=date).pct_change(fill_method=None).tail(20).loc[:,'000985.XSHG']  #中证全指代表市场收益率
         price = fqtd.read("close", start=rollback, stop=date)
         _adj= fqtd.read("adjfactor", start=rollback, stop=date)
-        stock_ret = (price * _adj).ffill().pct_change().tail(20)
+        stock_ret = (price * _adj).pct_change(fill_method=None).tail(20)
         deviation = (stock_ret.subtract(market_ret, axis=0)).abs()
         stand = (stock_ret.abs()).add(market_ret.abs(), axis=0)+ 0.1
         fright = deviation/stand
@@ -119,21 +120,21 @@ class VolatileFactor(BaseFactor):
 
     def get_std_4m(self,date: str):
         #近4个月日收益率序列的标准差
-        rollback = fqtd.get_trading_days_rollback(date, 88)
+        rollback = fqtd.get_trading_days_rollback(date, 84)
         price = fqtd.read("close", start=rollback, stop=date)
         _adj= fqtd.read("adjfactor", start=rollback, stop=date)
-        stock_ret = (price * _adj).ffill().pct_change().tail(88)
+        stock_ret = (price * _adj).pct_change(fill_method=None).tail(84)
         res = stock_ret.std()
         res.name = date
         return res
     
     def get_capm_std_3m(self,date: str):
         #近3个月内CAPM回归残差
-        rollback = fqtd.get_trading_days_rollback(date, 66)
+        rollback = fqtd.get_trading_days_rollback(date, 63)
         price = fqtd.read("close", start=rollback, stop=date)
         _adj= fqtd.read("adjfactor", start=rollback, stop=date)
-        stock_ret = (price * _adj).pct_change(fill_method=None).tail(66)
-        market_ret = fidxqtd.read('close',code='000001.XSHG', start=rollback, stop=date).pct_change(fill_method=None).tail(66)  #上证综指代表市场收益率
+        stock_ret = (price * _adj).pct_change(fill_method=None).tail(63)
+        market_ret = fidxqtd.read('close', code='000985.XSHG', start=rollback, stop=date).pct_change(fill_method=None).tail(63)
         X = sm.add_constant(market_ret)
         Y = stock_ret
         model = sm.OLS(Y, X).fit()
@@ -146,15 +147,15 @@ class VolatileFactor(BaseFactor):
     
     def get_ff3_3m(self,date: str):
         #近3个月Fama-French三因子回归残差的标准差
-        rollback = fqtd.get_trading_days_rollback(date, 66)
+        rollback = fqtd.get_trading_days_rollback(date, 63)
         price = fqtd.read("close", start=rollback, stop=date)
         _adj= fqtd.read("adjfactor", start=rollback, stop=date)
-        stock_ret = (price * _adj).ffill().pct_change().tail(66)
-        market_ret = fidxqtd.read('close',start=rollback, stop=date).loc[:,'000001.XSHG'].ffill().pct_change().tail(66)  #上证综指代表市场收益率
+        stock_ret = (price * _adj).pct_change(fill_method=None).tail(63)
+        market_ret = fidxqtd.read('close', code='000985.XSHG', start=rollback, stop=date).pct_change(fill_method=None).tail(63).loc[:,'000985.XSHG']
         
         #市值因子
         shares = fqtd.read("circulation_a", start=rollback, stop=date)
-        market_cap = (shares * price * _adj).tail(66)
+        market_cap = (shares * price * _adj).tail(63)
         sorted_market_cap = market_cap.mean().sort_values()  #将序列股票分为2组
         midpoint = len(sorted_market_cap) // 2
         S = sorted_market_cap.index[:midpoint]
@@ -163,7 +164,7 @@ class VolatileFactor(BaseFactor):
         # 规模因子
         trading_days = fqtd.get_trading_days(start=rollback, stop=date)
         bv = ffin.read('total_equity', start=rollback, stop=date)
-        bv = bv.reindex(trading_days).ffill().bfill().tail(66)
+        bv = bv.reindex(trading_days).ffill().bfill().tail(63)
         bm = bv / market_cap
         sorted_bm = bm.mean().sort_values()
         p30 = sorted_bm.quantile(0.3)
@@ -220,8 +221,8 @@ class VolatileFactor(BaseFactor):
     
     def get_rise_std_4m(self,date: str):
         #近4个月日内最大涨幅波动率
-        rollback = fqtd.get_trading_days_rollback(date, 88)
-        df = fqtm.read("high, open", start=rollback, stop=date).tail(88)
+        rollback = fqtd.get_trading_days_rollback(date, 84)
+        df = fqtm.read("high, open", start=rollback, stop=date).tail(84)
         max = df.groupby('date')['high'].max()
         ben = df.groupby('date')['open'].first()
         rise = (max - ben) / ben
@@ -231,7 +232,7 @@ class VolatileFactor(BaseFactor):
     
     def get_rise_fall_std_5m(self,date: str):
         #近5个月日内最大涨幅波动率减去日内最大跌幅波动率
-        rollback = fqtd.get_trading_days_rollback(date, 110).tail(110)
+        rollback = fqtd.get_trading_days_rollback(date, 105).tail(105)
         df = fqtm.read("high, low, open", start=rollback, stop=date)
         max = df.groupby('date')['high'].max()
         low = df.groupby('date')['low'].min()
