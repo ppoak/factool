@@ -147,7 +147,7 @@ class VolatileFactor(BaseFactor):
     
     def get_ff3_3m(self,date: str):
         #近3个月Fama-French三因子回归残差的标准差
-        rollback = fqtd.get_trading_days_rollback(date, 63)
+        rollback = fqtd.get_trading_days_rollback(date, 252)
         price = fqtd.read("close", start=rollback, stop=date)
         _adj= fqtd.read("adjfactor", start=rollback, stop=date)
         stock_ret = (price * _adj).pct_change(fill_method=None).tail(63)
@@ -186,7 +186,7 @@ class VolatileFactor(BaseFactor):
         HML = (SH + BH) / 2 - (SL + BL) / 2
 
         # 计算三因子回归残差
-        X = sm.add_constant(pd.DataFrame({'Market_Return': market_ret, 'SMB': SMB, 'HML': HML}).fillna(0))
+        X = sm.add_constant(pd.DataFrame({'Market_Return': market_ret, 'SMB': SMB, 'HML': HML})).dropna()
         Y = stock_ret
         model = sm.OLS(Y, X).fit()
         res = model.resid
@@ -195,6 +195,7 @@ class VolatileFactor(BaseFactor):
     def get_ff3_std_3m(self,date: str):
         res = self.get_ff3_3m(date) 
         res = res.std()
+        res.index.name = 'order_book_id'
         res.name = date
         return res
 
@@ -202,6 +203,7 @@ class VolatileFactor(BaseFactor):
         res = self.get_ff3_3m(date) 
         res = res[res > 0]
         res = res.std()
+        res.index.name = 'order_book_id'
         res.name = date
         return res
     
@@ -209,6 +211,7 @@ class VolatileFactor(BaseFactor):
         res = self.get_ff3_3m(date) 
         res = res[res < 0]
         res = res.std()
+        res.index.name = 'order_book_id'
         res.name = date
         return res
     
@@ -216,6 +219,7 @@ class VolatileFactor(BaseFactor):
         down = self.get_ff3_std_down_3m(date) 
         up = self.get_ff3_std_up_3m(date)
         res = down + up
+        res.index.name = 'order_book_id'
         res.name = date
         return res
     
@@ -227,6 +231,7 @@ class VolatileFactor(BaseFactor):
         ben = df.groupby('date')['open'].first()
         rise = (max - ben) / ben
         res = rise.std()
+        res.index.name = 'order_book_id'
         res.name = date
         return res
     
@@ -238,5 +243,6 @@ class VolatileFactor(BaseFactor):
         low = df.groupby('date')['low'].min()
         diff = (max - low) / low
         res = diff.std()
+        res.index.name = 'order_book_id'
         res.name = date
         return res
