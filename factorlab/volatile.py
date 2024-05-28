@@ -226,23 +226,25 @@ class VolatileFactor(BaseFactor):
     def get_rise_std_4m(self,date: str):
         #近4个月日内最大涨幅波动率
         rollback = fqtd.get_trading_days_rollback(date, 84)
-        df = fqtm.read("high, open", start=rollback, stop=date).tail(84)
-        max = df.groupby('date')['high'].max()
-        ben = df.groupby('date')['open'].first()
-        rise = (max - ben) / ben
+        high = fqtm.read("high", start=rollback, stop=date)
+        low = fqtm.read("low", start=rollback, stop=date)
+        max = high.groupby(high.index.date).max().tail(84)
+        min = low.groupby(low.index.date).min().tail(84)
+        rise = (max - min) / min
         res = rise.std()
-        res.index.name = 'order_book_id'
         res.name = date
         return res
     
     def get_rise_fall_std_5m(self,date: str):
-        #近5个月日内最大涨幅波动率减去日内最大跌幅波动率
-        rollback = fqtd.get_trading_days_rollback(date, 105).tail(105)
-        df = fqtm.read("high, low, open", start=rollback, stop=date)
-        max = df.groupby('date')['high'].max()
-        low = df.groupby('date')['low'].min()
-        diff = (max - low) / low
+        #近5个月日内最大涨幅减去日内最大跌幅波动率
+        rollback = fqtd.get_trading_days_rollback(date, 105)
+        high = fqtm.read("high", start=rollback, stop=date)
+        low = fqtm.read("low", start=rollback, stop=date)
+        max = high.groupby(high.index.date).max().tail(105)
+        min = low.groupby(low.index.date).min().tail(105)
+        rise = (max - min) / min
+        down = (max - min) / max
+        diff = rise - down
         res = diff.std()
-        res.index.name = 'order_book_id'
         res.name = date
         return res
