@@ -1,14 +1,14 @@
 import numpy as np
 import pandas as pd
 from .base import (
-    fqtm, BaseFactor
+    quotes_min, BaseFactor
 )
 
 
 class VolDistFactor(BaseFactor):
 
     def get_tail_volume_percent(self, date: pd.Timestamp):
-        data = fqtm.read("volume", start=date, stop=date + pd.Timedelta(days=1))
+        data = quotes_min.read("volume", start=date, stop=date + pd.Timedelta(days=1))
         tail_vol = data.between_time("14:31", "14:57").sum()
         day_vol = data.sum()
         res = tail_vol / day_vol
@@ -16,7 +16,7 @@ class VolDistFactor(BaseFactor):
         return res
 
     def get_volume_peak_count(self, date: pd.Timestamp):
-        volume = fqtm.read("volume", start=date, stop=date + pd.Timedelta(days=1))
+        volume = quotes_min.read("volume", start=date, stop=date + pd.Timedelta(days=1))
         mean = volume.mean()
         std = volume.std()
         peaks = volume[volume > mean + std]
@@ -27,8 +27,8 @@ class VolDistFactor(BaseFactor):
         return res
 
     def get_foggy_amount_ratio(self, date: pd.Timestamp) -> pd.Series:
-        price = fqtm.read("close", start=date, stop=date + pd.Timedelta(days=1))
-        vol = fqtm.read("volume", start=date, stop=date + pd.Timedelta(days=1))
+        price = quotes_min.read("close", start=date, stop=date + pd.Timedelta(days=1))
+        vol = quotes_min.read("volume", start=date, stop=date + pd.Timedelta(days=1))
         amount = price * vol
         ret = price.pct_change(fill_method=None)
         std = ret.rolling(5).std()
@@ -40,8 +40,8 @@ class VolDistFactor(BaseFactor):
         return res
 
     def get_corr_volume_portion(self, date: pd.Timestamp) -> pd.Series:
-        close = fqtm.read("close", start=date, stop=date + pd.Timedelta(days=1))
-        vol = fqtm.read("volume", start=date, stop=date + pd.Timedelta(days=1))
+        close = quotes_min.read("close", start=date, stop=date + pd.Timedelta(days=1))
+        vol = quotes_min.read("volume", start=date, stop=date + pd.Timedelta(days=1))
         volp = vol / vol.sum()
         mean = close.rolling(10).mean()
         std = close.rolling(10).std()

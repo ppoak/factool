@@ -2,16 +2,16 @@ import numpy as np
 import pandas as pd
 import statsmodels.api as sm
 from .base import (
-    fqtd, BaseFactor
+    quotes_day, BaseFactor
 )
 
 
 class MarketSizeFactor(BaseFactor):
 
     def get_barra_log_marketcap(self, date: str | pd.Timestamp) -> pd.Series:
-        shares = fqtd.read("circulation_a", start=date, stop=date)
-        price = fqtd.read("close", start=date, stop=date)
-        adjfactor = fqtd.read("adjfactor", start=date, stop=date)
+        shares = quotes_day.read("circulation_a", start=date, stop=date)
+        price = quotes_day.read("close", start=date, stop=date)
+        adjfactor = quotes_day.read("adjfactor", start=date, stop=date)
         res = np.log(shares * price * adjfactor).loc[date]
         return res
 

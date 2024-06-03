@@ -1,4 +1,4 @@
-import quool as q
+import quool
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
@@ -72,12 +72,12 @@ def tsmean(df: pd.DataFrame, n: int = 20):
     return df.rolling(n).mean()
 
 
-class BaseFactor(q.Factor):
+class BaseFactor(quool.Factor):
 
     def get(self, name: str, start: str = None, stop: str = None, n_jobs: int = -1):
         start = start or pd.to_datetime('now').strftime(r"%Y-%m-%d")
         stop = stop or pd.to_datetime('now').strftime(r"%Y-%m-%d")
-        trading_days = fqtd.get_trading_days(start, stop)
+        trading_days = quotes_day.get_trading_days(start, stop)
         result = Parallel(n_jobs=n_jobs, backend='loky')(
             delayed(getattr(self, "get_" + name))(date) for date in tqdm(list(trading_days))
         )
@@ -87,9 +87,9 @@ class BaseFactor(q.Factor):
             return pd.concat(result, axis=0).sort_index().loc(axis=0)[:, start:stop]
 
 
-fqtd = q.Factor("./data/quotes-day", code_level="order_book_id", date_level="date")
-fqtm = q.Factor("./data/quotes-min", code_level="order_book_id", date_level="datetime")
-fcon = q.Factor("./data/stock-connect", code_level="order_book_id", date_level="date")
-ffin = q.Factor("./data/financial", code_level="order_book_id", date_level="date")
-fidxwgt = q.Factor("./data/index-weights", code_level="order_book_id", date_level="date")
-fidxqtd = q.Factor("./data/index-quotes-day", code_level="order_book_id", date_level="date")
+quotes_day = quool.Factor("./data/quotes-day", code_level="order_book_id", date_level="date")
+quotes_min = quool.Factor("./data/quotes-min", code_level="order_book_id", date_level="datetime")
+stock_connect = quool.Factor("./data/stock-connect", code_level="order_book_id", date_level="date")
+financial = quool.Factor("./data/financial", code_level="order_book_id", date_level="date")
+index_weights = quool.Factor("./data/index-weights", code_level="order_book_id", date_level="date")
+index_quotes_day = quool.Factor("./data/index-quotes-day", code_level="order_book_id", date_level="date")
