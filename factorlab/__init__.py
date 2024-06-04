@@ -16,6 +16,8 @@ from .volatile import VolatileFactor
 from .capflow import CapFlowFactor
 from .evaluation import EvaluationFactor
 from .revmom import MomentumFactor
+from .liquidity import LiquidityFactor
+
 
 
 class Factor(
@@ -26,7 +28,8 @@ class Factor(
     VolatileFactor, 
     CapFlowFactor, 
     EvaluationFactor, 
-    MomentumFactor
+    MomentumFactor,
+    LiquidityFactor
 ):
     pass
     

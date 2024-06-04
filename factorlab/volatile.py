@@ -70,6 +70,7 @@ class VolatileFactor(BaseFactor):
         res = zscore(self.get_beta_return_residual(date).to_frame().T) * 0.1 + \
             zscore(self.get_daily_return_diviation(date).to_frame().T) * 0.16 + \
             zscore(self.get_daily_return_volatility(date).to_frame().T) * 0.74
+        res = res.loc[date]
         res.name = date
         return res
 
