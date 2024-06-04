@@ -30,12 +30,14 @@ class BarraReturn(quool.DatetimeTable, lab.Factor):
         ret = (price * _adj).pct_change(fill_method=None).loc[date]
         ret.name = 'ret'
 
-        ind = forge.industry_info.read('first_industry_name',start=date, stop=date).loc[date]
+        ind = forge.industry_info.read('first_industry_name',start=date, stop=date)
+        ind = ind.reset_index(level='date', drop=True)
         ind = pd.get_dummies(ind, drop_first=True)
         ind = ind.select_dtypes(include=[bool]).astype(int) 
         industry_columns = ind.columns # 获取行业名字
         ind['国家'] = 1
 
+        # 因子数据
         df = lab.factor.read(
             'log_marketcap, market_beta, nonrecent_momentum, residual_volatility,'
             'nonlinear_size, book_to_price, liquidity, barra_leverage',
@@ -80,9 +82,6 @@ class BarraReturn(quool.DatetimeTable, lab.Factor):
 
 barrareturn = BarraReturn("./data/barra-returns")
 
-data = barrareturn.get("barra_return", start='20231222', stop="20240101", n_jobs=1)
+data = barrareturn.get("barra_return", start='20140101', stop="20240101", n_jobs=1)
 data.index.name = 'date'
-print(data)
-
-# barra = q.DatetimeTable ('/home/data/barra-returns')
 # barra.update(data)
