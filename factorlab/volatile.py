@@ -44,10 +44,10 @@ class VolatileFactor(BaseFactor):
         rollback = quotes_day.get_trading_days_rollback(date, 252)
         price = quotes_day.read("close", start=rollback, stop=date)
         _adj = quotes_day.read("adjfactor", start=rollback, stop=date)
-        stock_ret = np.log(1 + (price * _adj).pct_change(fill_method=None)).tail(252)
+        stock_ret = np.log((1 + (price * _adj).pct_change(fill_method=None)).clip(lower=1e-10)).tail(252)
 
         zt = stock_ret.groupby(stock_ret.index.month).sum()
-        res = np.log(1 + zt.max()) - np.log(1 + zt.min())
+        res = np.log((1 + zt.max()).clip(lower=1e-10)) - np.log((1 + zt.min()).clip(lower=1e-10))
         res.name = date
         return res
     

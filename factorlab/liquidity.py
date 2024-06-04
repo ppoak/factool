@@ -12,8 +12,8 @@ class LiquidityFactor(BaseFactor):
     def get_turnover_month(self, date: str | pd.Timestamp) -> pd.Series:
         rollback = quotes_day.get_trading_days_rollback(date, 21)
         volume = quotes_day.read("volume", start=rollback, stop=date)
-        shares = quotes_day.read("circulation_a", start=rollback, stop=date)
-        res = np.log((volume / shares).sum() + 1e-6)
+        shares = quotes_day.read("circulation_a", start=rollback, stop=date).dropna()
+        res = np.log((volume / shares).sum().clip(lower=1e-10))
         res.name = date
         return res * 0.35
 
