@@ -93,7 +93,7 @@ class BaseFactor(quool.Factor):
         suspended = quotes_day.read("suspended", start=start, stop=stop)
         nontradable = st | suspended
 
-        price = price.where((~nontradable) | (ret >= 0.1), other=np.nan)
+        price = price.where((~nontradable) | (ret < 0.1), other=np.nan)
         future = price.shift(-1 - period) / price.shift(-1) - 1
         future = future.dropna(axis=0, how='all')
 
