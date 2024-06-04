@@ -10,15 +10,17 @@ class DeraPriceFactor(BaseFactor):
     def get_volume_weighted_price(self, date: pd.Timestamp):
         p = quotes_min.read("close", start=date, stop=date + pd.Timedelta(days=1))
         vol = quotes_min.read("volume", start=date, stop=date + pd.Timedelta(days=1))
-        stsus = quotes_day.read("st, suspended", start=date, stop=date)
-        adjfactor = quotes_day.read("adjfactor", start=date, stop=date).squeeze()
-        nontradable = stsus["st"] | stsus["suspended"]
-        nontradable = nontradable.unstack(level=quotes_day._code_level).fillna(True).squeeze()
         w = vol / vol.sum()
-        res = ((p * w).sum() * adjfactor).where(~nontradable)
+        res = (p * w).sum()
         res.name = date
         return res
-
+    
+    def get_time_weighted_price(self, date: pd.Timestamp):
+        p = quotes_min.read("close", start=date, stop=date + pd.Timedelta(days=1))
+        res = p.mean()
+        res.name = date
+        return res
+    
     def get_price_volume_corr(self, date: pd.Timestamp) -> pd.DataFrame:
         price = quotes_min.read("close", start=date, stop=date + pd.Timedelta(days=1))
         volume = quotes_min.read("volume", start=date, stop=date + pd.Timedelta(days=1))
