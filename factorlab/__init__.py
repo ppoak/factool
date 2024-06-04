@@ -1,5 +1,8 @@
 from .base import (
-    BaseFactor, fqtm, fqtd, fcon,
+    BaseFactor, 
+    quotes_day, quotes_min,
+    stock_connect, financial, 
+    index_quotes_day, index_weights,
     zscore, minmax,
     madoutlier, stdoutlier, iqroutlier,
     fillna, log, tsmean,
