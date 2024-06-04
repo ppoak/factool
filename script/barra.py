@@ -37,8 +37,8 @@ class BarraReturn(quool.DatetimeTable, lab.Factor):
         ind['国家'] = 1
 
         df = lab.factor.read(
-            'barra_log_marketcap, beta, rstr, residual_volatility,'
-            'barra_nonlinear_size, book_to_price, liquidity, barra_leverage',
+            'log_marketcap, market_beta, nonrecent_momentum, residual_volatility,'
+            'nonlinear_size, book_to_price, liquidity, barra_leverage',
             start=date, stop=date
         )
         df = df.reset_index(level='date', drop=True)

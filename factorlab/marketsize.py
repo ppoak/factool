@@ -8,14 +8,14 @@ from .base import (
 
 class MarketSizeFactor(BaseFactor):
 
-    def get_barra_log_marketcap(self, date: str | pd.Timestamp) -> pd.Series:
+    def get_log_marketcap(self, date: str | pd.Timestamp) -> pd.Series:
         shares = quotes_day.read("circulation_a", start=date, stop=date)
         price = quotes_day.read("close", start=date, stop=date)
         adjfactor = quotes_day.read("adjfactor", start=date, stop=date)
         res = np.log(shares * price * adjfactor).loc[date]
         return res
 
-    def get_barra_nonlinear_size(self, date: str | pd.Timestamp) -> pd.Series:
+    def get_nonlinear_size(self, date: str | pd.Timestamp) -> pd.Series:
         marketcap = self.get_barra_log_marketcap(date)
         y = (marketcap ** 3).dropna()
         x = sm.add_constant(marketcap).dropna()

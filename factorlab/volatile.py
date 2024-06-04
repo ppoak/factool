@@ -3,12 +3,15 @@ import pandas as pd
 import statsmodels.api as sm
 from .base import (
     quotes_day, quotes_min, index_weights, 
-    index_quotes_day, financial, BaseFactor
+    index_quotes_day, financial, 
+    BaseFactor,
+    zscore,
 )
 
 
 class VolatileFactor(BaseFactor):
 
+    # TODO: rewrite this block to `base.py`, registering it as a oprator
     def standardize(self, data: pd.Series ,date: pd.Timestamp) -> pd.Series:
         data = data.replace([np.inf, -np.inf], np.nan).dropna()
         weight = index_weights.read('000985.XSHG',start=date, stop=date).loc[date]
@@ -26,56 +29,51 @@ class VolatileFactor(BaseFactor):
         res.name = date
         return res
 
-    def get_dastd(self, date: str):
-        #过去252个交易日日超额收益率波动率
+    def get_daily_return_volatility(self, date: str):
         rollback = quotes_day.get_trading_days_rollback(date, 252)
         price = quotes_day.read("close", start=rollback, stop=date)
         _adj = quotes_day.read("adjfactor", start=rollback, stop=date)
 
-        #rf=0,用stock_ret代替excess_ret
         stock_ret = (price * _adj).pct_change(fill_method=None).tail(252) 
-        res = np.sqrt(((stock_ret - stock_ret.mean()) ** 2).sort_index(ascending=False).ewm(halflife=42).mean().sum())
-        res = self.standardize(res, date)
-        return res * 0.74
+        res = np.sqrt(((stock_ret - stock_ret.mean()) ** 2
+            ).sort_index(ascending=False).ewm(halflife=42).mean().sum())
+        res.name = date
+        return res
     
-    def get_cmra(self, date: str):
-        #过去12个月超额收益的离差
+    def get_daily_return_diviation(self, date: str):
         rollback = quotes_day.get_trading_days_rollback(date, 252)
         price = quotes_day.read("close", start=rollback, stop=date)
         _adj = quotes_day.read("adjfactor", start=rollback, stop=date)
         stock_ret = np.log(1 + (price * _adj).pct_change(fill_method=None)).tail(252)
 
-        date_intervals = pd.cut(stock_ret.index, bins=12, labels=False)
-        zt = (1 + stock_ret).groupby(date_intervals).prod() #compounded
-        zt_max = zt.loc[zt.sum(axis=1).idxmax(),:]
-        zt_min = zt.loc[zt.sum(axis=1).idxmin(),:]
-        res = np.log(1 + zt_max) - np.log(1 + zt_min)
-        res = self.standardize(res, date)
-        return res * 0.16
+        zt = stock_ret.groupby(stock_ret.index.month).sum()
+        res = np.log(1 + zt.max()) - np.log(1 + zt.min())
+        res.name = date
+        return res
     
-    def get_hsigma(self, date: str):
-        #beta的残差波动率
+    def get_beta_return_residual(self, date: str):
         rollback = quotes_day.get_trading_days_rollback(date, 252)
         price = quotes_day.read("close", start=rollback, stop=date)
         _adj= quotes_day.read("adjfactor", start=rollback, stop=date)
-        stock_ret = (price * _adj).pct_change(fill_method=None).tail(252).sort_index(ascending=False).ewm(halflife=63).mean()
-        market_ret = index_quotes_day.read('close', code='000985.XSHG', start=rollback, stop=date).pct_change(fill_method=None).tail(252).sort_index(ascending=False).ewm(halflife=63).mean().loc[:,'000985.XSHG']
-
-        X = sm.add_constant(market_ret)
-        Y = stock_ret
-        model = sm.OLS(Y, X).fit()
-        res = model.resid.std()
-        res = self.standardize(res, date)
-        res.index.name = 'order_book_id'
-        return res * 0.1
-
-    def get_residual_volatility(self, date: str):
-        res = self.get_hsigma(date) + self.get_cmra(date) + self.get_dastd(date)
-        res.index.name = 'order_book_id'
+        stock_ret = (price * _adj).pct_change(fill_method=None).tail(
+            252).sort_index(ascending=False).ewm(halflife=63).mean()
+        market_ret = index_quotes_day.read(
+            'close', code='000985.XSHG', start=rollback, stop=date
+        ).pct_change(fill_method=None).tail(252).sort_index(
+            ascending=False).ewm(halflife=63).mean().loc[:,'000985.XSHG']
+        beta = self.read("market_beta", start=rollback, stop=date)
+        res = (stock_ret - beta.mul(market_ret, axis=0)).std()
         res.name = date
         return res
 
-    def get_beta(self, date: str):
+    def get_residual_volatility(self, date: str):
+        res = zscore(self.get_beta_return_residual(date).to_frame().T) * 0.1 + \
+            zscore(self.get_daily_return_diviation(date).to_frame().T) * 0.16 + \
+            zscore(self.get_daily_return_volatility(date).to_frame().T) * 0.74
+        res.name = date
+        return res
+
+    def get_market_beta(self, date: str):
         rollback = quotes_day.get_trading_days_rollback(date, 252)
         price = quotes_day.read("close", start=rollback, stop=date)
         _adj= quotes_day.read("adjfactor", start=rollback, stop=date)
@@ -90,7 +88,6 @@ class VolatileFactor(BaseFactor):
             res[code] = result
 
         res = pd.Series(res)
-        res.index.name = 'order_book_id'
         res.name = date
         return res
     
