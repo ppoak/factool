@@ -61,7 +61,7 @@ class EvaluationFactor(BaseFactor):
         res.name = date
         return res
 
-    def get_barra_leverage(self, date: str | pd.Timestamp) -> pd.Series:
+    def get_compound_leverage(self, date: str | pd.Timestamp) -> pd.Series:
         res = 0.38 * zscore(self.get_market_leverage(date).to_frame().T) + \
             0.35 * zscore(self.get_debt_to_asset(date).to_frame().T) + \
             0.27 * zscore(self.get_book_leverage(date).to_frame().T)
