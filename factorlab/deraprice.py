@@ -38,3 +38,18 @@ class DeraPriceFactor(BaseFactor):
         return arrp
 
 
+class PriceVolumeCorr(BaseFactor):
+
+    def get_smart_money_ratio(self, date: pd.Timestamp) -> pd.DataFrame:
+        rollback = self.get_trading_days_rollback(date, 9)
+        price = quotes_min.read("close", start=rollback, stop=date + pd.Timedelta(days=1))
+        ret = price.pct_change(fill_method=None).abs()
+        vol = quotes_min.read("volume", start=rollback, stop=date + pd.Timedelta(days=1))
+        retvol = ret / (vol ** 0.25)
+        rank = retvol.rank(axis=0, ascending=False)
+        rank = rank.le(retvol.count() // 5, axis=1)
+        retvol = vol.where(rank)
+        res = ((retvol * price).sum() / retvol.sum()) / ((vol * price).sum() / vol.sum())
+        res.name = date
+        return res
+    
