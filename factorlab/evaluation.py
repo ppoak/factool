@@ -3,7 +3,7 @@ import pandas as pd
 from .base import (
     quotes_day, financial, 
     BaseFactor,
-    zscore
+    zscore, wscore
 )
 
 class EvaluationFactor(BaseFactor):
@@ -16,7 +16,7 @@ class EvaluationFactor(BaseFactor):
         price = quotes_day.read('close', start=date, stop=date)
         _adj = quotes_day.read('adjfactor', start=date, stop=date)
         shares = quotes_day.read('circulation_a', start=date, stop=date)
-        size = (price * _adj * shares).loc[date].dropna()
+        size = (price * _adj * shares).loc[date]
         res = bv / size
         res.name = date
         return res
@@ -31,9 +31,9 @@ class EvaluationFactor(BaseFactor):
         price = quotes_day.read('close', start=date, stop=date)
         _adj = quotes_day.read('adjfactor', start=date, stop=date)
         shares = quotes_day.read('circulation_a', start=date, stop=date)
-        me = (price * _adj * shares).loc[date].dropna()
+        me = (price * _adj * shares).loc[date]
         res = (me + ld + pe) / me
-
+        res = res.replace([np.inf, -np.inf], np.nan)
         res.name = date
         return res
 
@@ -41,10 +41,10 @@ class EvaluationFactor(BaseFactor):
         rollback = quotes_day.get_trading_days_rollback(date, rollback=252)
         trading_days = quotes_day.get_trading_days(start=rollback, stop=date)
 
-        ta = financial.read('total_assets', start=rollback, stop=date).reindex(trading_days).ffill().loc[date].dropna()
+        ta = financial.read('total_assets', start=rollback, stop=date).reindex(trading_days).ffill().loc[date].fillna(0)
         td = financial.read('total_liabilities', start=rollback, stop=date).reindex(trading_days).ffill().loc[date].fillna(0)
         res = td / ta
-
+        res = res.replace([np.inf, -np.inf], np.nan)
         res.name = date
         return res
     
@@ -55,9 +55,9 @@ class EvaluationFactor(BaseFactor):
         pe = financial.read('equity_preferred_stock', start=rollback, stop=date).reindex(trading_days).ffill().loc[date].fillna(0)
         ld = financial.read('non_current_liabilities', start=rollback, stop=date).reindex(trading_days).ffill().loc[date].fillna(0)
         bv = financial.read('total_equity', start=rollback, stop=date).reindex(trading_days).ffill().loc[date].fillna(0)
-        be = (bv - pe).dropna()
+        be = bv - pe
         res = (be + ld + pe) / be
-
+        res = res.replace([np.inf, -np.inf], np.nan)
         res.name = date
         return res
 

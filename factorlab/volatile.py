@@ -11,15 +11,6 @@ from .base import (
 
 class VolatileFactor(BaseFactor):
 
-    # TODO: rewrite this block to `base.py`, registering it as a oprator
-    def standardize(self, data: pd.Series ,date: pd.Timestamp) -> pd.Series:
-        data = data.replace([np.inf, -np.inf], np.nan).dropna()
-        weight = index_weights.read('000985.XSHG',start=date, stop=date).loc[date]
-        mean = np.sum(weight * data)
-        std = data.std()
-        res = (data - mean) / std
-        return res
-
     def get_information_distribution_uniformity(self, date: str):
         rollback = quotes_day.get_trading_days_rollback(date, 20)
         price = quotes_min.read("close", start=rollback, stop=date + pd.Timedelta(days=1))

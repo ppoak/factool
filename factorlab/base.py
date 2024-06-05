@@ -7,6 +7,11 @@ from pathlib import Path
 from joblib import Parallel, delayed
 
 
+def wscore(df: pd.DataFrame, date: pd.Timestamp):
+    weight = index_weights.read('000985.XSHG',start=date, stop=date)
+    return (df.sub(np.sum(weight * df, axis=1),axis=0)
+            ).div(df.std(axis=1), axis=0)
+
 def zscore(df: pd.DataFrame):
     return df.sub(df.mean(axis=1), axis=0
         ).div(df.std(axis=1), axis=0)
@@ -190,7 +195,7 @@ class BaseFactor(quool.Factor):
 
         if image is not None:
             fig, ax = plt.subplots(1, 1, figsize=(20, 10))
-            inforcoef.plot(ax=ax, label='infor-coef', alpha=0.7, title=f'{factor} Information Coef')
+            inforcoef.plot(ax=ax, label='infor-coef', alpha=0.7, title='Information Coef')
             inforcoef.rolling(rolling).mean().plot(linestyle='--', ax=ax, label='trend')
             inforcoef.cumsum().plot(linestyle='-.', secondary_y=True, ax=ax, label='cumm-infor-coef')
             pd.Series(np.zeros(inforcoef.shape[0]), index=inforcoef.index).plot(color='grey', ax=ax, alpha=0.5)
@@ -318,7 +323,7 @@ class BaseFactor(quool.Factor):
         topks = factor.where(topks)
         topks = (topks / topks).div(topks.count(axis=1), axis=0).fillna(0)
         _period = period if skip_nonperiod_day else 1
-        turnover = topks.diff(period=_period).fillna(0).abs().sum(axis=1) / 2 / _period
+        turnover = topks.diff(periods=_period).fillna(0).abs().sum(axis=1) / 2 / _period
         ret = (topks * future).sum(axis=1).shift(1).fillna(0) - turnover * commission
         ret = ret.fillna(0) / _period
         val = (1 + ret).cumprod()
