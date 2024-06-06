@@ -23,8 +23,9 @@ class BarraReturn(quool.DatetimeTable, lab.Factor):
         weight.name = 'weight'
 
         # 回归权重矩阵
-        weight_mat = size.apply(lambda x: np.sqrt(x) / np.sqrt(size.sum()))
-        weight_mat.name = 'weight_mat'
+        reg_weight = size.apply(lambda x: np.sqrt(x) / np.sqrt(size.sum()))
+        reg_weight.name = 'reg_weight'
+        # V = np.diag(reg_weight)
 
         # 不考虑rf的超额收益
         ret = (price * _adj).pct_change(fill_method=None).loc[date]
@@ -32,7 +33,7 @@ class BarraReturn(quool.DatetimeTable, lab.Factor):
 
         ind = forge.industry_info.read('first_industry_name',start=date, stop=date)
         ind = ind.reset_index(level='date', drop=True)
-        ind = pd.get_dummies(ind, drop_first=True)
+        ind = pd.get_dummies(ind, prefix='', prefix_sep='')
         ind = ind.select_dtypes(include=[bool]).astype(int) 
         industry_columns = ind.columns # 获取行业名字
         ind['国家'] = 1
@@ -41,47 +42,55 @@ class BarraReturn(quool.DatetimeTable, lab.Factor):
         df = lab.factor.read(
             'log_marketcap, market_beta, nonrecent_momentum, residual_volatility,'
             'nonlinear_size, book_to_price, compound_turnover, compound_leverage',
-            start=date, stop=date
+            start=rollback, stop=rollback
         )
         df = df.reset_index(level='date', drop=True)
-        df = df.apply(lambda x: (x - np.sum(x * weight) )/ x.std()) # 因子截面标准化
+        df = df.apply(lambda x: (x - np.sum(x * weight))/ x.std()) # 因子截面标准化
         df = pd.concat([df,ind,ret], axis=1).dropna()
 
         # 匹配长度
         industry_columns = industry_columns.intersection(df.columns)
-        weight_mat = weight_mat.loc[df.index]
-
+        reg_weight = reg_weight.loc[df.index]
+        
         # 计算因子收益
         X = df.drop(['ret'], axis=1)
         y = df['ret']
 
         # 设置变量
         N, K = X.shape
-        beta = cp.Variable(K)
-        residuals = y.values - X.values @ beta
+        f = cp.Variable(K)
+        w = cp.Variable((K, N))
+        residuals = y.values - X.values @ f
 
         # 加权最小化残差平方和
-        weighted_residuals = cp.multiply(weight_mat, residuals)
+        weighted_residuals = cp.multiply(reg_weight, residuals)
         objective = cp.Minimize(cp.sum_squares(weighted_residuals))
 
+        # r = f * X 
+        # where f = w * r
+        # r = (w * r) * X
+        # constraint：when ∑(w(i) * X) = 1 ， ∑(w(other) * X) = 0
         # 添加约束条件
-        constraints = 0
+        industry_constraints = 0
         for col in industry_columns:
             industry_weight = (weight * df[col]).sum()
             industry_index = X.columns.get_loc(col)
-            constraints += beta[industry_index] * industry_weight
+            industry_constraints += f[industry_index] * industry_weight
 
-        problem = cp.Problem(objective, [constraints == 0])
+        f_constraint = [f == w @ y.values]
+
+        exposure_constraints = [(w @ X.values)== np.eye(K)]
+
+        problem = cp.Problem(objective, [industry_constraints == 0] + f_constraint + exposure_constraints)
         problem.solve()
 
         # 获取回归系数
-        res = pd.Series(beta.value,index = df.drop(['ret'], axis=1).columns)
+        res = pd.Series(f.value, index=df.drop(['ret'], axis=1).columns)
         res.name = date
         return res   
-    
 
 barrareturn = BarraReturn("./data/barra-returns")
 
-data = barrareturn.get("barra_return", start='20140101', stop="20240101", n_jobs=1)
-data.index.name = 'date'
-# barra.update(data)
+data = barrareturn.get("barra_return", start='20140104', stop="20240101", n_jobs= 1)
+# data.index.name = 'date'
+# barrareturn.update(data)
