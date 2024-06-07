@@ -10,7 +10,7 @@ from .base import (
 
 from .marketsize import MarketSizeFactor
 from .retdist import RetDistFactor
-from .deraprice import DeraPriceFactor, PriceVolumeCorr
+from .pricevolume import DeraPriceFactor, PriceVolumeCorr
 from .voldist import VolDistFactor
 from .volatile import VolatileFactor
 from .capflow import CapFlowFactor
