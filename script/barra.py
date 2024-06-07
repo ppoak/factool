@@ -23,9 +23,12 @@ class BarraReturn(quool.DatetimeTable, lab.Factor):
         size = (shares * price * _adj).loc[date]
 
         # 行业因子
+        ind_columns = ['交通运输', '传媒', '农林牧渔', '医药', '商贸零售', '国防军工', '基础化工', '家电', '建材', '建筑',
+                       '房地产', '有色金属', '机械', '汽车', '消费者服务', '煤炭', '电力及公用事业', '电力设备及新能源', '电子',
+                       '石油石化', '纺织服装', '综合', '计算机', '轻工制造', '通信', '钢铁', '银行', '非银行金融', '食品饮料']
         ind = forge.industry_info.read('first_industry_name',start=date, stop=date)
         ind = ind.reset_index(level='date', drop=True)
-        ind = pd.get_dummies(ind, prefix='', prefix_sep='')
+        ind = pd.get_dummies(ind, prefix='', prefix_sep='').loc[:,ind_columns]
         ind = ind.select_dtypes(include=[bool]).astype(int) 
 
         # 风格因子
@@ -80,7 +83,6 @@ class BarraReturn(quool.DatetimeTable, lab.Factor):
         return f   
 
 barrareturn = BarraReturn("./data/barra-returns")
-
-data = barrareturn.get("barra_return", start='20140104', stop="20240101", n_jobs= 1)
+data = barrareturn.get("barra_return", start='20140104', stop="20240101", n_jobs= -1)
 # data.index.name = 'date'
 # barrareturn.update(data)
