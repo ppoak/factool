@@ -34,4 +34,5 @@ class Factor(
 ):
     pass
     
-factor = Factor("./data/factor", code_level="order_book_id", date_level="date")
+barra_factor = Factor("./data/barra-factor", code_level="order_book_id", date_level="date")
+factor = Factor("./data/temp-factor", code_level="order_book_id", date_level="date")
