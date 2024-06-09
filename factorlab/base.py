@@ -1,10 +1,6 @@
 import quool
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
-from tqdm import tqdm
-from pathlib import Path
-from joblib import Parallel, delayed
 
 
 def wscore(df: pd.DataFrame, date: pd.Timestamp):
