@@ -97,7 +97,7 @@ class BaseFactor(quool.Factor):
         start = start or pd.to_datetime('now').strftime(r"%Y-%m-%d")
         stop = stop or pd.to_datetime('now').strftime(r"%Y-%m-%d")
         trading_days = quotes_day.get_trading_days(start, stop)
-        super().get(name, trading_days, n_jobs)
+        super().get(name, trading_days, n_jobs, start, stop)
 
 
 quotes_day = quool.Factor("./data/quotes-day", code_level="order_book_id", date_level="date")
