@@ -86,18 +86,20 @@ class BaseFactor(quool.Factor):
         skip_nonperiod_day: bool = False,
     ):
         price = self.read(ptype, start=start, stop=stop)
+        adjfactor = self.read("adjfactor", start=start, stop=stop)
+        price *= adjfactor
         ret = price / price.shift(1) - 1
         st = quotes_day.read("st", start=start, stop=stop)
         suspended = quotes_day.read("suspended", start=start, stop=stop)
         nonrealizable = st | suspended | (ret >= 0.1)
 
-        super().get_future(ptype, period, start, stop, skip_nonperiod_day, nonrealizable)
+        return super().get_future(ptype, period, start, stop, skip_nonperiod_day, nonrealizable)
 
     def get(self, name: str, start: str = None, stop: str = None, n_jobs: int = -1):
         start = start or pd.to_datetime('now').strftime(r"%Y-%m-%d")
         stop = stop or pd.to_datetime('now').strftime(r"%Y-%m-%d")
         trading_days = quotes_day.get_trading_days(start, stop)
-        super().get(name, trading_days, n_jobs)
+        return super().get(name, trading_days, n_jobs)
 
 
 quotes_day = quool.Factor("./data/quotes-day", code_level="order_book_id", date_level="date")
