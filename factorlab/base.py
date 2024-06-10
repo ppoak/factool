@@ -108,3 +108,4 @@ stock_connect = quool.Factor("./data/stock-connect", code_level="order_book_id",
 financial = quool.Factor("./data/financial", code_level="order_book_id", date_level="date")
 index_weights = quool.Factor("./data/index-weights", code_level="order_book_id", date_level="date")
 index_quotes_day = quool.Factor("./data/index-quotes-day", code_level="order_book_id", date_level="date")
+industry_info = quool.Factor("./data/industry-info", code_level="order_book_id", date_level="date")
