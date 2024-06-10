@@ -85,6 +85,8 @@ class BaseFactor(quool.Factor):
         stop: str | pd.Timestamp = None,
         skip_nonperiod_day: bool = False,
     ):
+        if stop is not None:
+            stop = self.get_trading_days_rollback(stop, -period - 1)
         price = self.read(ptype, start=start, stop=stop)
         adjfactor = quotes_day.read("adjfactor", start=start, stop=stop)
         ptype = price * adjfactor
