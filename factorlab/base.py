@@ -86,8 +86,8 @@ class BaseFactor(quool.Factor):
         skip_nonperiod_day: bool = False,
     ):
         price = self.read(ptype, start=start, stop=stop)
-        adjfactor = self.read("adjfactor", start=start, stop=stop)
-        price *= adjfactor
+        adjfactor = quotes_day.read("adjfactor", start=start, stop=stop)
+        ptype = price * adjfactor
         ret = price / price.shift(1) - 1
         st = quotes_day.read("st", start=start, stop=stop)
         suspended = quotes_day.read("suspended", start=start, stop=stop)
