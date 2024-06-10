@@ -89,13 +89,13 @@ class BaseFactor(quool.Factor):
             stop = self.get_trading_days_rollback(stop, -period - 1)
         price = self.read(ptype, start=start, stop=stop)
         adjfactor = quotes_day.read("adjfactor", start=start, stop=stop)
-        ptype = price * adjfactor
+        price = price * adjfactor
         ret = price / price.shift(1) - 1
         st = quotes_day.read("st", start=start, stop=stop)
         suspended = quotes_day.read("suspended", start=start, stop=stop)
         nonrealizable = st | suspended | (ret >= 0.1)
 
-        return super().get_future(ptype, period, start, stop, skip_nonperiod_day, nonrealizable)
+        return super().get_future(price, period, skip_nonperiod_day, nonrealizable)
 
     def get(self, name: str, start: str = None, stop: str = None, n_jobs: int = -1):
         start = start or pd.to_datetime('now').strftime(r"%Y-%m-%d")
