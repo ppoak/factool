@@ -18,6 +18,16 @@ class MomentumFactor(BaseFactor):
         res.name = date
         return res
     
+    def get_momentum_acceleration(self, date: str):
+        rollback = quotes_day.get_trading_days_rollback(date, 252)
+        price = quotes_day.read("close", start=rollback, stop=date)
+        _adj= quotes_day.read("adjfactor", start=rollback, stop=date)
+        recent_ret = (1 + (price * _adj).pct_change(fill_method=None)).tail(126).cumprod()[-1:].squeeze()
+        past_ret = (1 + (price * _adj).pct_change(fill_method=None)).head(126).cumprod()[-1:].squeeze()
+        res = recent_ret - past_ret
+        res.name = date
+        return res
+    
     def get_trend_fund(self, date: str):
         rollback = quotes_day.get_trading_days_rollback(date, 5)
         volume_5d_90 = quotes_min.read("volume", start=rollback, stop=date).quantile(0.90)
