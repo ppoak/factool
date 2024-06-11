@@ -6,7 +6,6 @@ import factorlab as lab
 import dataforge as forge
 from tqdm import  tqdm
 from joblib import Parallel, delayed
-from sklearn.preprocessing import StandardScaler
 
 class BarraReturn(quool.DatetimeTable, lab.Factor):
 
@@ -32,18 +31,23 @@ class BarraReturn(quool.DatetimeTable, lab.Factor):
         ind = ind.select_dtypes(include=[bool]).astype(int) 
 
         # 风格因子
-        style = lab.factor.read(
-            'log_marketcap, market_beta, nonrecent_momentum, residual_volatility,'
-            'nonlinear_size, book_to_price, compound_turnover, compound_leverage',
-            start=rollback, stop=rollback
-        )
+        style_columns = ['log_marketcap', 'market_beta', 'nonrecent_momentum', 'residual_volatility','nonlinear_size', 
+                        'book_to_price', 'compound_turnover', 'compound_leverage']
+        style = pd.DataFrame()
+        for col in style_columns:
+            data = lab.barra_factor.read(col, start=rollback, stop=rollback)
+            data = lab.zscore(data)
+            data = data.unstack()
+            data.name = col
+            if style.empty:
+                style = data
+            else:
+                style = pd.concat([data,style] ,axis=1)
         style = style.reset_index(level='date', drop=True)
-        scaler = StandardScaler()
-        scaled_style = pd.DataFrame(scaler.fit_transform(style), index=style.index, columns=style.columns)
 
          # 国家因子
         country = pd.Series(np.ones(len(style.index)), index=style.index, name='country').to_frame()
-        X = pd.concat([country, ind, scaled_style], axis=1).dropna()
+        X = pd.concat([country, ind, style], axis=1).dropna()
 
         # 回归权重矩阵
         reg_weight = np.sqrt(size) / np.sqrt(size).sum()
@@ -83,6 +87,7 @@ class BarraReturn(quool.DatetimeTable, lab.Factor):
         return f   
 
 barrareturn = BarraReturn("./data/barra-returns")
-data = barrareturn.get("barra_return", start='20140104', stop="20240101", n_jobs= -1)
+data = barrareturn.get("barra_return", start='20140201', stop="20240101", n_jobs= 1)
+print(data)
 # data.index.name = 'date'
 # barrareturn.update(data)
