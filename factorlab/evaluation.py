@@ -93,3 +93,25 @@ class EvaluationFactor(BaseFactor):
         res.index.name = 'order_book_id'
         res.name = date
         return res
+    
+    def get_capital_investment(self, date: str | pd.Timestamp) -> pd.Series:
+        rollback = quotes_day.get_trading_days_rollback(date, rollback=252)
+        A_paid= financial.read('cash_paid_for_asset', start=rollback, stop=date).ffill().iloc[-1]
+        A_disposal = financial.read('cash_received_from_disposal_of_asset', start=rollback, stop=date).ffill().iloc[-1]
+        operating_rev = financial.read('operating_revenue', start=rollback, stop=date).ffill().iloc[-1]
+
+        res = (A_paid - A_disposal) / operating_rev
+        res = res.replace([np.inf, -np.inf], np.nan)
+        res.name = date
+        return res
+    
+    def get_capital_investment_ratio(self, date: str | pd.Timestamp) -> pd.Series:
+        ce = self.get_capital_investment(date)
+        res = 0
+        for i in range(252, 252*4, 252): 
+            res += self.get_capital_investment(quotes_day.get_trading_days_rollback(date, i)).fillna(0)
+    
+        res = (ce / (res/3)) -1
+        res = res.replace([np.inf, -np.inf], np.nan)
+        res.name = date
+        return res
