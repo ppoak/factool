@@ -1,5 +1,6 @@
 import numpy as np
 import pandas as pd
+import statsmodels.api as sm
 from .base import (
     quotes_day, financial, 
     BaseFactor,
@@ -75,5 +76,20 @@ class EvaluationFactor(BaseFactor):
         pe = financial.read('total_equity',start=rollback, stop=date).ffill().iloc[-1]
         pe_past = financial.read('total_equity',start=rollback_past, stop=rollback).ffill().iloc[-1]
         res = (pe - pe_past)/pe_past
+        res.name = date
+        return res
+
+    def get_improve_revenue(self, date: str | pd.Timestamp) -> pd.Series:
+        rollback = quotes_day.get_trading_days_rollback(date, rollback=504)
+        revenue = zscore(financial.read('revenue',start=rollback, stop=date).ffill()[-1:]).squeeze()
+        expense = zscore(financial.read('total_expense',start=rollback, stop=date).ffill()[-1:]).squeeze()
+        revenue = revenue.loc[expense.index]
+
+        y = revenue.dropna()
+        X = sm.add_constant(expense).dropna()
+        model = sm.OLS(y, X)
+        res = model.fit()
+        res = res.resid
+        res.index.name = 'order_book_id'
         res.name = date
         return res

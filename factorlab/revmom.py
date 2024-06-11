@@ -25,6 +25,7 @@ class MomentumFactor(BaseFactor):
         recent_ret = (1 + (price * _adj).pct_change(fill_method=None)).tail(126).cumprod()[-1:].squeeze()
         past_ret = (1 + (price * _adj).pct_change(fill_method=None)).head(126).cumprod()[-1:].squeeze()
         res = recent_ret - past_ret
+        res.index.name = 'order_book_id'
         res.name = date
         return res
     
