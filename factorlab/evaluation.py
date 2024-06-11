@@ -68,3 +68,12 @@ class EvaluationFactor(BaseFactor):
         res = res.loc[date]
         res.name = date
         return res
+
+    def get_growth_pe(self, date: str | pd.Timestamp) -> pd.Series:
+        rollback = quotes_day.get_trading_days_rollback(date, rollback=252)
+        rollback_past = quotes_day.get_trading_days_rollback(date, rollback=504)
+        pe = financial.read('total_equity',start=rollback, stop=date).ffill().iloc[-1]
+        pe_past = financial.read('total_equity',start=rollback_past, stop=rollback).ffill().iloc[-1]
+        res = (pe - pe_past)/pe_past
+        res.name = date
+        return res
