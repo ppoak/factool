@@ -88,6 +88,6 @@ class PriceVolumeCorr(BaseFactor):
                 res = self.get_volume_ratio_open30(quotes_day.get_trading_days_rollback(date, i)).to_frame().T
             else:
                 res = pd.concat([res, self.get_volume_ratio_open30(quotes_day.get_trading_days_rollback(date, i)).to_frame().T])
-        res = res.ewm(2/(1+20)).mean().sum()/20
+        res = res.ewm(alpha = 2/21, adjust=False).mean().sum()/20
         res.name = date
         return res

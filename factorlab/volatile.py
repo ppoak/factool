@@ -26,8 +26,7 @@ class VolatileFactor(BaseFactor):
         _adj = quotes_day.read("adjfactor", start=rollback, stop=date)
 
         stock_ret = (price * _adj).pct_change(fill_method=None).tail(252) 
-        res = np.sqrt(((stock_ret - stock_ret.mean()) ** 2
-            ).sort_index(ascending=False).ewm(halflife=42).mean().sum())
+        res = np.sqrt(((stock_ret - stock_ret.mean()) ** 2).sort_index(ascending=False).ewm(halflife=42, adjust=False).mean().sum())
         res.name = date
         return res
     
@@ -46,13 +45,10 @@ class VolatileFactor(BaseFactor):
         rollback = quotes_day.get_trading_days_rollback(date, 252)
         price = quotes_day.read("close", start=rollback, stop=date)
         _adj= quotes_day.read("adjfactor", start=rollback, stop=date)
-        stock_ret = (price * _adj).pct_change(fill_method=None).tail(
-            252).sort_index(ascending=False).ewm(halflife=63).mean()
-        market_ret = index_quotes_day.read(
-            'close', code='000985.XSHG', start=rollback, stop=date
-        ).pct_change(fill_method=None).tail(252).sort_index(
-            ascending=False).ewm(halflife=63).mean().loc[:,'000985.XSHG']
+        stock_ret = (price * _adj).pct_change(fill_method=None).tail(252).sort_index(ascending=False).ewm(halflife=63, adjust=False).mean()
+        market_ret = index_quotes_day.read('close', code='000985.XSHG', start=rollback, stop=date).pct_change(fill_method=None).tail(252).sort_index(ascending=False).ewm(halflife=63, adjust=False).mean().loc[:,'000985.XSHG']
         beta = self.read("market_beta", start=rollback, stop=date)
+        
         res = (stock_ret - beta.mul(market_ret, axis=0)).std()
         res.name = date
         return res
@@ -69,17 +65,31 @@ class VolatileFactor(BaseFactor):
         rollback = quotes_day.get_trading_days_rollback(date, 252)
         price = quotes_day.read("close", start=rollback, stop=date)
         _adj= quotes_day.read("adjfactor", start=rollback, stop=date)
-        stock_ret = (price * _adj).pct_change(fill_method=None).tail(252).sort_index(ascending=False).ewm(halflife=63).mean()
-        market_ret = index_quotes_day.read('close', code='000985.XSHG', start=rollback, stop=date).pct_change(fill_method=None).tail(252).sort_index(ascending=False).ewm(halflife=63).mean().loc[:,'000985.XSHG']
+        stock_ret = (price * _adj).pct_change(fill_method=None).tail(252).sort_index(ascending=False).ewm(halflife=63, adjust=False).mean()
+        market_ret = index_quotes_day.read('close', code='000985.XSHG', start=rollback, stop=date).pct_change(fill_method=None).tail(252).sort_index(ascending=False).ewm(halflife=63, adjust=False).mean().loc[:,'000985.XSHG']
 
         res = {}
-        var = np.var(market_ret)
+        var = np.var(market_ret, ddof=1)
         for code in stock_ret.columns:
             covr = np.cov(stock_ret[code],market_ret)[0][1]
             result = covr/var
             res[code] = result
 
         res = pd.Series(res)
+
+        # h = 63
+        # alpha = 1 - np.exp(np.log(0.5) / h)
+        # weights = pd.Series([alpha * (1 - alpha)**t for t in range(252)][::-1], index=stock_ret.index)
+        # weights /=  np.sum(weights)
+
+        # X = sm.add_constant(market_ret)
+        # y = stock_ret
+        # model = sm.WLS(y, X, weights=weights).fit()
+        # res = model.params[1:]
+        # res = res.squeeze()
+        # res.index = y.columns
+
+        res.index.name = 'order_book_id'
         res.name = date
         return res
     
@@ -177,8 +187,8 @@ class VolatileFactor(BaseFactor):
 
         # 计算三因子回归残差
         X = sm.add_constant(pd.DataFrame({'Market_Return': market_ret, 'SMB': SMB, 'HML': HML})).dropna()
-        Y = stock_ret
-        model = sm.OLS(Y, X).fit()
+        y = stock_ret
+        model = sm.OLS(y, X).fit()
         res = model.resid
         return res
     

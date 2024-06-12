@@ -81,12 +81,12 @@ class EvaluationFactor(BaseFactor):
 
     def get_improve_revenue(self, date: str | pd.Timestamp) -> pd.Series:
         rollback = quotes_day.get_trading_days_rollback(date, rollback=504)
-        revenue = zscore(financial.read('revenue',start=rollback, stop=date).ffill()[-1:]).squeeze()
-        expense = zscore(financial.read('total_expense',start=rollback, stop=date).ffill()[-1:]).squeeze()
+        revenue = zscore(financial.read('revenue',start=rollback, stop=date).ffill()[-1:]).squeeze().dropna()
+        expense = zscore(financial.read('total_expense',start=rollback, stop=date).ffill()[-1:]).squeeze().dropna()
         revenue = revenue.loc[expense.index]
 
-        y = revenue.dropna()
-        X = sm.add_constant(expense).dropna()
+        y = revenue
+        X = sm.add_constant(expense)
         model = sm.OLS(y, X)
         res = model.fit()
         res = res.resid
