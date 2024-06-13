@@ -16,7 +16,7 @@ class MarketSizeFactor(BaseFactor):
         return res
 
     def get_nonlinear_size(self, date: str | pd.Timestamp) -> pd.Series:
-        marketcap = self.get_barra_log_marketcap(date)
+        marketcap = self.get_log_marketcap(date)
         y = (marketcap ** 3).dropna()
         x = sm.add_constant(marketcap).dropna()
         model = sm.OLS(y, x)

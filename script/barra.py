@@ -65,7 +65,7 @@ class BarraReturn(quool.DatetimeTable, lab.Factor):
         R[len(ind.columns),1:len(ind_weight_adj)+1] = ind_weight_adj.values
         R = pd.DataFrame(R, index=X.columns, columns=X.columns.drop(ind.columns[-1]))
 
-        # 带约束，且考虑异方差的股票权重矩阵 omega = R @ (R.T @ X.T @ V @ X @ R)^-1 @ R.T @ X.T @ V
+        # 带约束，且考虑异方差的股票权重矩阵。 omega = R @ (R.T @ X.T @ V @ X @ R)^-1 @ R.T @ X.T @ V
         W = np.dot(R.dot(np.linalg.inv(R.T.dot(X.T).dot(V).dot(X).dot(R))),R.T).dot(X.T).dot(V)
         W = pd.DataFrame(W, index=X.columns, columns=X.index)
 
@@ -79,9 +79,10 @@ class BarraReturn(quool.DatetimeTable, lab.Factor):
         
         # 因子收益率, r=不考虑rf的超额收益
         r = (price * _adj).pct_change(fill_method=None).loc[date]
-        r = r.reindex(X.index)
+        r = r.reindex(X.index).dropna()
         r.name = 'ret'
 
+        W = W.loc[:,r.index]
         f = W.dot(r)
         f.name = rollback
         return f   

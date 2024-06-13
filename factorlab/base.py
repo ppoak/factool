@@ -66,10 +66,16 @@ def fillna(
 ):
     return df.fillna(val)
 
-def log(df: pd.DataFrame, dropinf: bool = True):
-    if dropinf:
-        return np.log(df).replace([np.inf, -np.inf], np.nan)
-    return np.log(df)
+def log(df: pd.DataFrame): # 适用于右偏数据
+    return np.log((df + 1e-6).sub(df.min(axis=1), axis=0))
+
+def sqrt(df: pd.DataFrame): # 减少数据的范围
+    return np.sqrt(df.sub(df.min(axis=1), axis=0))
+
+def boxcox(df: pd.DataFrame): # 正态化，需要缩尾处理
+    df_transformed = df.apply(lambda row: boxcox((row - row.min()+ 1e-6).fillna(1e-6))[0], axis=1, result_type='expand')
+    df_transformed.columns = df.columns
+    return df_transformed
 
 def tsmean(df: pd.DataFrame, n: int = 20):
     return df.rolling(n).mean()
