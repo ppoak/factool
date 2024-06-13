@@ -1,7 +1,7 @@
 import quool
 import numpy as np
 import pandas as pd
-
+from scipy.stats import boxcox
 
 def wscore(df: pd.DataFrame, date: pd.Timestamp):
     weight = index_weights.read('000985.XSHG',start=date, stop=date)
@@ -72,9 +72,9 @@ def log(df: pd.DataFrame): # 适用于右偏数据
 def sqrt(df: pd.DataFrame): # 减少数据的范围
     return np.sqrt(df.sub(df.min(axis=1), axis=0))
 
-def boxcox(df: pd.DataFrame): # 正态化，需要缩尾处理
-    df_transformed = df.apply(lambda row: boxcox((row - row.min()+ 1e-6).fillna(1e-6))[0], axis=1, result_type='expand')
-    df_transformed.columns = df.columns
+def box_cox(df: pd.DataFrame): # 正态化
+    df_transformed = df.apply(lambda row: boxcox((row - row.min()+ 1e-6).dropna())[0], axis=1, result_type='expand')
+    df_transformed.columns = df.dropna(axis=1).columns
     return df_transformed
 
 def tsmean(df: pd.DataFrame, n: int = 20):

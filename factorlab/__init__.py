@@ -3,9 +3,9 @@ from .base import (
     quotes_day, quotes_min,
     stock_connect, financial, 
     index_quotes_day, index_weights,
-    zscore, minmax,
+    wscore, zscore, minmax,
     madoutlier, stdoutlier, iqroutlier,
-    fillna, log, tsmean,
+    fillna, log, tsmean, sqrt, box_cox,
 )
 
 from .marketsize import MarketSizeFactor
