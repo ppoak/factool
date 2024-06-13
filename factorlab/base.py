@@ -73,8 +73,17 @@ def sqrt(df: pd.DataFrame): # 减少数据的范围
     return np.sqrt(df.sub(df.min(axis=1), axis=0))
 
 def box_cox(df: pd.DataFrame): # 正态化
-    df_transformed = df.apply(lambda row: boxcox((row - row.min()+ 1e-6).dropna())[0], axis=1, result_type='expand')
-    df_transformed.columns = df.dropna(axis=1).columns
+    def safe_boxcox(row):
+        non_nan_values = row.dropna()
+        if non_nan_values.empty:
+            return pd.Series([np.nan] * len(row), index=row.index)
+        else:
+            transformed_values = boxcox((non_nan_values - non_nan_values.min() + 1e-6))[0]
+            res = pd.Series([np.nan] * len(row), index=row.index)
+            res.loc[non_nan_values.index] = transformed_values
+            return res
+
+    df_transformed = df.apply(safe_boxcox, axis=1, result_type='expand')
     return df_transformed
 
 def tsmean(df: pd.DataFrame, n: int = 20):
