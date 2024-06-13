@@ -15,17 +15,17 @@ class BarraReturn(quool.DatetimeTable, lab.Factor):
         # r = (w * r) * X
         # constraint：when ∑(w(i) * X) = 1 ， ∑(w(other) * X) = 0
 
-        rollback = lab.quotes_day.get_trading_days_rollback(date, 1)
+        rollback = lab.quotes_day.get_trading_days_rollback(date, 2)
         price = lab.quotes_day.read('close', start=rollback, stop=date)
         _adj = lab.quotes_day.read('adjfactor', start=rollback, stop=date)
-        shares = lab.quotes_day.read("circulation_a", start=date, stop=date)
-        size = (shares * price * _adj).loc[date]
+        shares = lab.quotes_day.read("circulation_a", start=rollback, stop=rollback)
+        size = (shares * price * _adj).loc[rollback]
 
         # 行业因子
         ind_columns = ['交通运输', '传媒', '农林牧渔', '医药', '商贸零售', '国防军工', '基础化工', '家电', '建材', '建筑',
                        '房地产', '有色金属', '机械', '汽车', '消费者服务', '煤炭', '电力及公用事业', '电力设备及新能源', '电子',
                        '石油石化', '纺织服装', '综合', '计算机', '轻工制造', '通信', '钢铁', '银行', '非银行金融', '食品饮料']
-        ind = forge.industry_info.read('first_industry_name',start=date, stop=date)
+        ind = forge.industry_info.read('first_industry_name',start=rollback, stop=rollback)
         ind = ind.reset_index(level='date', drop=True)
         ind = pd.get_dummies(ind, prefix='', prefix_sep='').loc[:,ind_columns]
         ind = ind.select_dtypes(include=[bool]).astype(int) 
@@ -83,11 +83,11 @@ class BarraReturn(quool.DatetimeTable, lab.Factor):
         r.name = 'ret'
 
         f = W.dot(r)
-        f.name = date
+        f.name = rollback
         return f   
 
 barrareturn = BarraReturn("./data/barra-returns")
-data = barrareturn.get("barra_return", start='20140201', stop="20240101", n_jobs= 1)
-print(data)
+data = barrareturn.get("barra_return", start='20140201', stop="20240101", n_jobs= -1)
+# print(data)
 # data.index.name = 'date'
 # barrareturn.update(data)
