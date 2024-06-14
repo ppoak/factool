@@ -15,17 +15,16 @@ class BarraReturn(quool.DatetimeTable, lab.Factor):
         # r = (w * r) * X
         # constraint：when ∑(w(i) * X) = 1 ， ∑(w(other) * X) = 0
 
-        rollback = lab.quotes_day.get_trading_days_rollback(date, 2)
-        price = lab.quotes_day.read('close', start=rollback, stop=date)
-        _adj = lab.quotes_day.read('adjfactor', start=rollback, stop=date)
-        shares = lab.quotes_day.read("circulation_a", start=rollback, stop=rollback)
-        size = (shares * price * _adj).loc[rollback]
+        price = lab.quotes_day.read('close', start=date, stop=date)
+        _adj = lab.quotes_day.read('adjfactor', start=date, stop=date)
+        shares = lab.quotes_day.read("circulation_a", start=date, stop=date)
+        size = (shares * price * _adj).loc[date]
 
         # 行业因子
         ind_columns = ['交通运输', '传媒', '农林牧渔', '医药', '商贸零售', '国防军工', '基础化工', '家电', '建材', '建筑',
                        '房地产', '有色金属', '机械', '汽车', '消费者服务', '煤炭', '电力及公用事业', '电力设备及新能源', '电子',
                        '石油石化', '纺织服装', '综合', '计算机', '轻工制造', '通信', '钢铁', '银行', '非银行金融', '食品饮料']
-        ind = forge.industry_info.read('first_industry_name',start=rollback, stop=rollback)
+        ind = forge.industry_info.read('first_industry_name',start=date, stop=date)
         ind = ind.reset_index(level='date', drop=True)
         ind = pd.get_dummies(ind, prefix='', prefix_sep='').loc[:,ind_columns]
         ind = ind.select_dtypes(include=[bool]).astype(int) 
@@ -35,7 +34,7 @@ class BarraReturn(quool.DatetimeTable, lab.Factor):
                         'book_to_price', 'compound_turnover', 'compound_leverage']
         style = pd.DataFrame()
         for col in style_columns:
-            data = lab.barra_factor.read(col, start=rollback, stop=rollback)
+            data = lab.barra_factor.read(col, start=date, stop=date)
             data = lab.zscore(data)
             data = data.unstack()
             data.name = col
@@ -78,13 +77,13 @@ class BarraReturn(quool.DatetimeTable, lab.Factor):
         # W = pd.DataFrame(W, index=X.columns, columns=X.index)
         
         # 因子收益率, r=不考虑rf的超额收益
-        r = (price * _adj).pct_change(fill_method=None).loc[date]
+        r = lab.barra_factor.get_future(start=date, stop=date)
         r = r.reindex(X.index).dropna()
         r.name = 'ret'
 
         W = W.loc[:,r.index]
         f = W.dot(r)
-        f.name = rollback
+        f.name = date
         return f   
 
 barrareturn = BarraReturn("./data/barra-returns")
