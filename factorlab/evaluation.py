@@ -78,7 +78,21 @@ class EvaluationFactor(BaseFactor):
         res = (pe - pe_past)/pe_past
         res.name = date
         return res
+    
+    def get_change_inventory(self, date: str | pd.Timestamp) -> pd.Series:
+        rollback = quotes_day.get_trading_days_rollback(date, rollback=252)
+        rollback_past = quotes_day.get_trading_days_rollback(date, rollback=504)
+        inv = financial.read('inventory',start=rollback, stop=date).ffill().iloc[-1]
+        asset = financial.read('total_assets',start=rollback, stop=date).ffill().iloc[-1]
 
+        inv_past = financial.read('inventory',start=rollback_past, stop=rollback).ffill().iloc[-1]
+        asset_past = financial.read('total_assets',start=rollback_past, stop=rollback).ffill().iloc[-1]
+
+        avg_asset = (asset + asset_past) / 2
+        res = (inv - inv_past)/avg_asset
+        res.name = date
+        return res
+    
     def get_improve_revenue(self, date: str | pd.Timestamp) -> pd.Series:
         rollback = quotes_day.get_trading_days_rollback(date, rollback=504)
         revenue = zscore(financial.read('revenue',start=rollback, stop=date).ffill()[-1:]).squeeze().dropna()
