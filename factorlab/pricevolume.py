@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 from .base import (
-    quotes_day, quotes_min, BaseFactor
+    quotes_day, quotes_min, wscore, BaseFactor
 )
 
 
@@ -73,7 +73,7 @@ class PriceVolumeCorr(BaseFactor):
         arrp.name = date
         return arrp
     
-    def get_volume_ratio_open30(self, date: pd.Timestamp) -> pd.DataFrame:
+    def get_volume_ratio_open30(self, date: pd.Timestamp) -> pd.Series:
         df = quotes_min.read("volume", start=date, stop=date + pd.Timedelta(days=1))
         morning_session = df.between_time('09:30:00', '10:00:00').sum()
         afternoon_session = df.between_time('13:00:00', '13:30:00').sum()
@@ -81,7 +81,7 @@ class PriceVolumeCorr(BaseFactor):
         res.name = date
         return res
 
-    def get_volume_ratio_open30_20d(self, date: pd.Timestamp) -> pd.DataFrame:
+    def get_volume_ratio_open30_20d(self, date: pd.Timestamp) -> pd.Series:
         res = pd.DataFrame()
         for i in range(0, 20, 1): 
             if res.empty:
@@ -90,4 +90,38 @@ class PriceVolumeCorr(BaseFactor):
                 res = pd.concat([res, self.get_volume_ratio_open30(quotes_day.get_trading_days_rollback(date, i)).to_frame().T])
         res = res.ewm(alpha = 2/21, adjust=False).mean().sum()/20
         res.name = date
+        return res
+    
+    def get_compound_price_volume_corr(self, date: pd.Timestamp) -> pd.Series:
+        rollback = quotes_day.get_trading_days_rollback(date, 21)
+        dp = quotes_day.read("close", start=rollback, stop=date).diff(1).iloc[1:].tail(20)
+        dv = quotes_day.read("volume", start=rollback, stop=date).diff(1).iloc[1:].head(20)
+        dv.index = dp.index
+        # 原始
+        dV_dP_Corr = dp.corrwith(dv, axis=0)
+        dV_dP_Corr.name = date
+        dV_dP_Corr = wscore(dV_dP_Corr.to_frame().T, date).loc[date]
+        
+        dp_p = dp[dp > 0]
+        dv_p = dv[dv > 0]
+        dV_dP_Corr_pp = dp_p.corrwith(dv_p, axis=0)
+        dV_dP_Corr_pp.name = date
+        dV_dP_Corr_pp = wscore(dV_dP_Corr_pp.to_frame().T, date).loc[date]
+
+        dp_n = dp[dp < 0]
+        dv_n = dv[dv < 0]
+        dV_dP_Corr_nn = dp_n.corrwith(dv_n, axis=0)
+        dV_dP_Corr_nn.name = date
+        dV_dP_Corr_nn = wscore(dV_dP_Corr_nn.to_frame().T, date).loc[date]
+
+        dV_dP_Corr_np = dp_p.corrwith(dv_n, axis=0)
+        dV_dP_Corr_np.name = date
+        dV_dP_Corr_np = wscore(dV_dP_Corr_np.to_frame().T, date).loc[date]
+
+        dV_dP_Corr_pn = dp_n.corrwith(dv_p, axis=0)
+        dV_dP_Corr_pn.name = date
+        dV_dP_Corr_pn = wscore(dV_dP_Corr_pn.to_frame().T, date).loc[date]        
+
+        # 复合量先价行
+        res = dV_dP_Corr_pp - dV_dP_Corr_pn - dV_dP_Corr_np + dV_dP_Corr_nn
         return res
