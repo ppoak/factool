@@ -81,7 +81,7 @@ class MomentumFactor(BaseFactor):
     def get_mutilag_trend(self, date: str):
         base_price = quotes_day.read("close", start=date, stop=date)
         L = [3, 5, 10, 20, 50, 100, 200]
-        self.get_future(start=date, stop=date, period=21)
+
         res = pd.Series()
         for lag in L:
             rollback = quotes_day.get_trading_days_rollback(date, lag)
