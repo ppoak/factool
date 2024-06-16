@@ -124,5 +124,6 @@ class MomentumFactor(BaseFactor):
             else:
                 res = pd.concat([res,ma],axis=1)
 
-        res = beta.dot(res)
+        res = res.dot(beta)
+        res.name = date
         return res
