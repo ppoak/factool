@@ -78,4 +78,51 @@ class MomentumFactor(BaseFactor):
         res.name = date
         return res
 
+    def get_mutilag_trend(self, date: str):
+        base_price = quotes_day.read("close", start=date, stop=date)
+        L = [3, 5, 10, 20, 50, 100, 200]
+        self.get_future(start=date, stop=date, period=21)
+        res = pd.Series()
+        for lag in L:
+            rollback = quotes_day.get_trading_days_rollback(date, lag)
+            price = quotes_day.read("close", start=rollback, stop=date).rolling(lag).mean().tail(1)
+            ma = (price / base_price).loc[date]
+            ma.name = 'lag_{}'.format(lag)
+            if res.empty:
+                res = ma
+            else:
+                res = pd.concat([res,ma],axis=1)
 
+        future = self.get_future(start=date, stop=date, period=21)
+        future.name = 'future'
+        df = pd.concat([res,future],axis=1).dropna()
+
+        X = sm.add_constant(df.drop(columns = 'future'))
+        y = df['future']
+
+        model = sm.OLS(y, X).fit()
+        res = model.params[1:]
+        res.name = date
+        return res
+
+    def get_mutilag_trend_pred(self, date: str):
+        beta = 0
+        for i in range(0, 232, 21):
+            beta += self.get_mutilag_trend(quotes_day.get_trading_days_rollback(date, i))
+        beta = beta/12
+
+        base_price = quotes_day.read("close", start=date, stop=date)
+        L = [3, 5, 10, 20, 50, 100, 200]
+        res = pd.Series()
+        for lag in L:
+            rollback = quotes_day.get_trading_days_rollback(date, lag)
+            price = quotes_day.read("close", start=rollback, stop=date).rolling(lag).mean().tail(1)
+            ma = (price / base_price).loc[date]
+            ma.name = 'lag_{}'.format(lag)
+            if res.empty:
+                res = ma
+            else:
+                res = pd.concat([res,ma],axis=1)
+
+        res = beta.dot(res)
+        return res
