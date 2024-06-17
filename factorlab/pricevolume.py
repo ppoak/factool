@@ -92,7 +92,7 @@ class PriceVolumeCorr(BaseFactor):
         res.name = date
         return res
     
-    def get_compound_price_volume_corr(self, date: pd.Timestamp) -> pd.Series:
+    def get_compound_volume_first(self, date: pd.Timestamp) -> pd.Series:
         rollback = quotes_day.get_trading_days_rollback(date, 21)
         dp = quotes_day.read("close", start=rollback, stop=date).diff(1).iloc[1:].tail(20)
         dv = quotes_day.read("volume", start=rollback, stop=date).diff(1).iloc[1:].head(20)

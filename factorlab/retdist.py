@@ -36,7 +36,7 @@ class RetDistFactor(BaseFactor):
         res.name = date
         return res
 
-    def get_coskewness(self, date: str) -> pd.Series:
+    def get_conditional_coskewness(self, date: str) -> pd.Series:
         rollback = quotes_day.get_trading_days_rollback(date, 126)
         price = quotes_day.read("close", start=rollback, stop=date)
         _adj= quotes_day.read("adjfactor", start=rollback, stop=date)
