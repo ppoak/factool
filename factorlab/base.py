@@ -2,6 +2,7 @@ import quool
 import numpy as np
 import pandas as pd
 from scipy.stats import boxcox
+from sklearn.preprocessing import PowerTransformer
 
 def wscore(df: pd.DataFrame, date: pd.Timestamp):
     weight = index_weights.read('000985.XSHG',start=date, stop=date)
@@ -16,7 +17,7 @@ def minmax(df: pd.DataFrame):
     return df.sub(df.min(axis=1), axis=0).div(
         df.max(axis=1) - df.min(axis=1), axis=0)
 
-def madoutlier(
+def madoutlier( # 高度鲁棒：对极端值和异常值非常敏感，适合大量极端值或严重偏态。
     df: pd.DataFrame, 
     dev: int, 
     drop: bool = False
@@ -32,7 +33,7 @@ def madoutlier(
         df.le(thresh_up, axis=0) & df.ge(thresh_down, axis=0),
         other=np.nan, axis=0).where(~df.isna())
 
-def stdoutlier(
+def stdoutlier( # 适用于正态数据
     df: pd.DataFrame, 
     dev: int, 
     drop: bool = False
@@ -47,11 +48,11 @@ def stdoutlier(
         df.le(thresh_up, axis=0) & df.ge(thresh_down, axis=0),
         other=np.nan, axis=0).where(~df.isna())
 
-def iqroutlier(
+def iqroutlier( # 适合数据的分布大致对称或略微偏态。
     df: pd.DataFrame, 
     dev: int, 
     drop: bool = False
-):
+): 
     thresh_up = df.quantile(1 - dev / 2, axis=1)
     thresh_down = df.quantile(dev / 2, axis=1)
     if not drop:
@@ -66,13 +67,13 @@ def fillna(
 ):
     return df.fillna(val)
 
-def log(df: pd.DataFrame): # 适用于右偏数据
+def log(df: pd.DataFrame): # 适用于分布简单的右偏数据，适合处理正值
     return np.log((df + 1e-6).sub(df.min(axis=1), axis=0))
 
 def sqrt(df: pd.DataFrame): # 减少数据的范围
     return np.sqrt(df.sub(df.min(axis=1), axis=0))
 
-def box_cox(df: pd.DataFrame): # 正态化
+def box_cox(df: pd.DataFrame): # 正态化, 适合处理正值且偏态不是很严重的数据。
     def safe_boxcox(row):
         non_nan_values = row.dropna()
         if non_nan_values.empty:
@@ -84,6 +85,17 @@ def box_cox(df: pd.DataFrame): # 正态化
             return res
 
     df_transformed = df.apply(safe_boxcox, axis=1, result_type='expand')
+    return df_transformed
+
+def yeo_johnson(df: pd.DataFrame): # 正态化, 适合偏态较严重，可以含零值和负值的数据
+    def transform_row(row):
+        row_reshaped = row.values.reshape(-1, 1)
+        transformed_row = pt.fit_transform(row_reshaped)
+        return transformed_row.flatten()
+
+    pt = PowerTransformer(method='yeo-johnson', standardize=False)
+    df_transformed = df.apply(transform_row, axis=1, result_type='expand')
+    df_transformed.columns = df.columns
     return df_transformed
 
 def tsmean(df: pd.DataFrame, n: int = 20):
