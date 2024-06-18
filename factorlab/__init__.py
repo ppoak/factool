@@ -5,7 +5,8 @@ from .base import (
     index_quotes_day, index_weights,
     wscore, zscore, minmax,
     madoutlier, stdoutlier, iqroutlier,
-    fillna, log, tsmean, sqrt, box_cox,
+    fillna, log, tsmean, sqrt, box_cox, 
+    yeo_johnson,
 )
 
 from .marketsize import MarketSizeFactor
