@@ -49,3 +49,15 @@ class LiquidityFactor(BaseFactor):
         res = turnover.std()/turnover.mean()
         res.name = date
         return res
+
+    def get_nonliquidity_cv(self, date: str | pd.Timestamp) -> pd.Series:
+        rollback = quotes_day.get_trading_days_rollback(date, 20)
+        price = quotes_day.read("close", start=rollback, stop=date)
+        volume = quotes_day.read("volume", start=rollback, stop=date)
+        _adj= quotes_day.read("adjfactor", start=rollback, stop=date)
+        stock_ret  = (price * _adj).pct_change(fill_method=None).tail(20).abs()
+        amount = (price*volume).tail(20)
+        nonliquidity = (stock_ret / amount).dropna(axis=1)
+        res = nonliquidity.std(skipna=True)/ nonliquidity.mean()
+        res.name = date
+        return res
