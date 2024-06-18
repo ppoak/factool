@@ -40,3 +40,12 @@ class LiquidityFactor(BaseFactor):
         res = res.loc[date]
         res.name = date
         return res
+
+    def get_turnover_cv(self, date: str | pd.Timestamp) -> pd.Series:
+        rollback = quotes_day.get_trading_days_rollback(date, 20)
+        volume = quotes_day.read("volume", start=rollback, stop=date)
+        shares = quotes_day.read("circulation_a", start=rollback, stop=date)
+        turnover = (volume / shares).tail(20)
+        res = turnover.std()/turnover.mean()
+        res.name = date
+        return res
