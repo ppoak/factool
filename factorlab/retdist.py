@@ -35,20 +35,3 @@ class RetDistFactor(BaseFactor):
         res = (tot_ret * vol_per_unit.mean()) / vol.sum()
         res.name = date
         return res
-
-    def get_conditional_coskewness(self, date: str) -> pd.Series:
-        rollback = quotes_day.get_trading_days_rollback(date, 126)
-        price = quotes_day.read("close", start=rollback, stop=date)
-        _adj= quotes_day.read("adjfactor", start=rollback, stop=date)
-        stock_ret = (price * _adj).pct_change(fill_method=None).tail(126)
-        market_ret = index_quotes_day.read('close', code='000985.XSHG', start=rollback, stop=date).pct_change(fill_method=None).tail(126).loc[:,'000985.XSHG']
-        X = sm.add_constant(market_ret)
-        y = stock_ret
-        model = sm.OLS(y, X).fit()
-
-        epsilon_i = model.resid
-        epsilon_m = market_ret - market_ret.mean()
-        res = np.mean(epsilon_i.mul(epsilon_m**2, axis=0),axis=0) / (np.sqrt((epsilon_i**2).mean()) * (epsilon_m**2).mean())
-        res.index.name = 'order_book_id'
-        res.name = date
-        return res
