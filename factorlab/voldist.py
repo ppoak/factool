@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 from .base import (
-    quotes_min, BaseFactor
+    quotes_min, quotes_day, BaseFactor
 )
 
 
@@ -58,5 +58,24 @@ class VolDistFactor(BaseFactor):
         corr_vol = corr_vol.mask(pos < 0, negpos_vol, axis=0)
         corr_vol = corr_vol.mask(pos == 0, zeropos_vol, axis=0)
         res = volp.corrwith(corr_vol)
+        res.name = date
+        return res
+    
+    def get_volume_ratio_open30(self, date: pd.Timestamp) -> pd.Series:
+        df = quotes_min.read("volume", start=date, stop=date + pd.Timedelta(days=1))
+        morning_session = df.between_time('09:30:00', '10:00:00').sum()
+        afternoon_session = df.between_time('13:00:00', '13:30:00').sum()
+        res = (morning_session/afternoon_session)
+        res.name = date
+        return res
+
+    def get_volume_ratio_open30_20d(self, date: pd.Timestamp) -> pd.Series:
+        res = pd.DataFrame()
+        for i in range(0, 20, 1): 
+            if res.empty:
+                res = self.get_volume_ratio_open30(quotes_day.get_trading_days_rollback(date, i)).to_frame().T
+            else:
+                res = pd.concat([res, self.get_volume_ratio_open30(quotes_day.get_trading_days_rollback(date, i)).to_frame().T])
+        res = res.ewm(alpha = 2/21, adjust=False).mean().sum()/20
         res.name = date
         return res
