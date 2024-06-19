@@ -57,7 +57,7 @@ class LiquidityFactor(BaseFactor):
         _adj= quotes_day.read("adjfactor", start=rollback, stop=date)
         stock_ret  = (price * _adj).pct_change(fill_method=None).tail(20).abs()
         amount = (price*volume).tail(20)
-        nonliquidity = (stock_ret / amount).dropna(axis=1)
-        res = nonliquidity.std(skipna=True)/ nonliquidity.mean()
+        nonliquidity = (stock_ret / amount).replace([np.inf, -np.inf], np.nan).fillna(0)
+        res = nonliquidity.std()/ nonliquidity.mean()
         res.name = date
         return res

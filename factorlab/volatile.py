@@ -74,7 +74,6 @@ class VolatileFactor(BaseFactor):
         #     covr = np.cov(stock_ret[code],market_ret)[0][1]
         #     result = covr/var
         #     res[code] = result
-
         # res = pd.Series(res)
 
         h = 63
@@ -93,6 +92,28 @@ class VolatileFactor(BaseFactor):
         res.name = date
         return res
     
+    def get_downside_market_beta(self, date: str) -> pd.Series:
+        rollback = quotes_day.get_trading_days_rollback(date, 252)
+        price = quotes_day.read("close", start=rollback, stop=date)
+        _adj= quotes_day.read("adjfactor", start=rollback, stop=date)
+        stock_ret = (price * _adj).pct_change(fill_method=None).tail(252)
+        market_ret = index_quotes_day.read('close', code='000985.XSHG', start=rollback, stop=date).pct_change(fill_method=None).tail(252).loc[:,'000985.XSHG']
+    
+        market_ret = market_ret[market_ret < 0]
+        stock_ret = stock_ret.loc[market_ret.index]
+
+        res = {}
+        var = np.var(market_ret, ddof=1)
+        for code in stock_ret.columns:
+            covr = np.cov(stock_ret[code],market_ret)[0][1]
+            result = covr/var
+            res[code] = result
+        res = pd.Series(res)
+
+        res.index.name = 'order_book_id'
+        res.name = date
+        return res
+
     def get_fright_degree(self, date: str) -> pd.Series:
         #惊恐度
         rollback = quotes_day.get_trading_days_rollback(date, 20)
@@ -278,6 +299,23 @@ class VolatileFactor(BaseFactor):
         numerator = -n * (n - 1) ** 1.5 * deviations_cubed
         denominator = (n - 1) * (n - 2) * (deviations_squared ** 1.5)
         res = numerator/denominator
+        res.name = date
+        return res
+
+    def get_down_up_std_ratio(self, date: str) -> pd.Series:
+        rollback = quotes_day.get_trading_days_rollback(date, 60)
+        price = quotes_day.read("close", start=rollback, stop=date)
+        _adj= quotes_day.read("adjfactor", start=rollback, stop=date)
+        stock_ret = (price * _adj).pct_change(fill_method=None).tail(60)
+        cum_return = np.expm1(np.log1p(stock_ret).sum()).mean()
+
+        stock_ret_down = stock_ret[stock_ret < cum_return]
+        stock_ret_up = stock_ret[stock_ret > cum_return]
+        nd = stock_ret_down.notna().sum() - 1
+        nu = stock_ret_up.notna().sum() - 1
+
+        res = (nd * (((stock_ret_down - cum_return)**2).sum())) / (nu * ((stock_ret_up - cum_return)**2).sum())
+        res = np.log(res.replace([np.inf, -np.inf], np.nan).dropna() + 1e-10)
         res.name = date
         return res
     
