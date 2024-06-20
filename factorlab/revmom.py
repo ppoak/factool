@@ -78,3 +78,15 @@ class MomentumFactor(BaseFactor):
         res = res.dot(beta)
         res.name = date
         return res
+
+    def get_CMO(self, date: str):
+        rollback = quotes_day.get_trading_days_rollback(date, 20)
+        price = quotes_day.read("close", start=rollback, stop=date)
+        delta = price.diff().tail(20)
+        up = delta.where(delta > 0, 0)
+        down = -delta.where(delta < 0, 0)
+        sum_up = up.sum()
+        sum_down = down.sum()
+        res = 100 * (sum_up - sum_down) / (sum_up + sum_down)
+        res.name = date
+        return res

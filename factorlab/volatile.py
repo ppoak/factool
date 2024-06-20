@@ -31,13 +31,23 @@ class VolatileFactor(BaseFactor):
         return res
     
     def get_daily_return_diviation(self, date: str) -> pd.Series:
-        rollback = quotes_day.get_trading_days_rollback(date, 252)
-        price = quotes_day.read("close", start=rollback, stop=date)
-        _adj = quotes_day.read("adjfactor", start=rollback, stop=date)
-        stock_ret = np.log((1 + (price * _adj).pct_change(fill_method=None)).clip(lower=1e-10)).tail(252)
+        def get_month_zt(date: str):
+            rollback = quotes_day.get_trading_days_rollback(date, 21)
+            price = quotes_day.read("close", start=rollback, stop=date)
+            _adj = quotes_day.read("adjfactor", start=rollback, stop=date)
+            zt = np.log(1 + (price * _adj).pct_change(fill_method=None).tail(21) + 1e-10).sum()
+            zt.name = date
+            return zt.to_frame().T
+        
+        res = pd.DataFrame()
+        for i in range(0, 232, 21):
+            zt = get_month_zt(quotes_day.get_trading_days_rollback(date, i))
+            if res.empty:
+                res = zt
+            else:
+                res = pd.concat([res,zt])
 
-        zt = stock_ret.groupby(stock_ret.index.month).sum()
-        res = np.log((1 + zt.max()).clip(lower=1e-10)) - np.log((1 + zt.min()).clip(lower=1e-10))
+        res = np.log((1 + res.max()).clip(lower=1e-10)) - np.log((1 + res.min()).clip(lower=1e-10))
         res.name = date
         return res
     
@@ -287,13 +297,13 @@ class VolatileFactor(BaseFactor):
         res.name = date
         return res
     
-    def get_negative_coskewness(self, date: str) -> pd.Series:
+    def get_negative_coefficient_kewness(self, date: str) -> pd.Series:
         rollback = quotes_day.get_trading_days_rollback(date, 20)
         price = quotes_day.read("close", start=rollback, stop=date)
         _adj= quotes_day.read("adjfactor", start=rollback, stop=date)
         stock_ret = (price * _adj).pct_change(fill_method=None).tail(20)
-        deviations_cubed = np.sum((stock_ret.sub(stock_ret.mean(axis=1),axis=0)) **3, axis=0)
-        deviations_squared = np.sum((stock_ret.sub(stock_ret.mean(axis=1),axis=0)) **2, axis=0)
+        deviations_cubed = np.sum((stock_ret.sub(stock_ret.mean(),axis=1)) **3, axis=0)
+        deviations_squared = np.sum((stock_ret.sub(stock_ret.mean(),axis=1)) **2, axis=0)
         
         n = 20
         numerator = -n * (n - 1) ** 1.5 * deviations_cubed
@@ -307,15 +317,16 @@ class VolatileFactor(BaseFactor):
         price = quotes_day.read("close", start=rollback, stop=date)
         _adj= quotes_day.read("adjfactor", start=rollback, stop=date)
         stock_ret = (price * _adj).pct_change(fill_method=None).tail(60)
-        cum_return = np.expm1(np.log1p(stock_ret).sum()).mean()
+        compound_return = np.expm1(np.log1p(stock_ret).sum())/stock_ret.count()
 
-        stock_ret_down = stock_ret[stock_ret < cum_return]
-        stock_ret_up = stock_ret[stock_ret > cum_return]
+        stock_ret_down = stock_ret[stock_ret < compound_return]
+        stock_ret_up = stock_ret[stock_ret > compound_return]
         nd = stock_ret_down.notna().sum() - 1
         nu = stock_ret_up.notna().sum() - 1
 
-        res = (nd * (((stock_ret_down - cum_return)**2).sum())) / (nu * ((stock_ret_up - cum_return)**2).sum())
-        res = np.log(res.replace([np.inf, -np.inf], np.nan).dropna() + 1e-10)
+        sum_down = nu * ((stock_ret_down - compound_return) ** 2).sum()
+        sum_up = nd * ((stock_ret_up - compound_return) ** 2).sum()
+        res = np.log((sum_down / sum_up).replace([np.inf, -np.inf], np.nan).dropna() + 1e-10)
         res.name = date
         return res
     
