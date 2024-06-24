@@ -70,62 +70,31 @@ class EvaluationFactor(BaseFactor):
         res.name = date
         return res
 
-    def get_growth_pe(self, date: str | pd.Timestamp) -> pd.Series:
+    def get_growth_asset(self, date: str | pd.Timestamp) -> pd.Series:
         rollback = quotes_day.get_trading_days_rollback(date, rollback=252)
-        rollback_past = quotes_day.get_trading_days_rollback(date, rollback=504)
-        pe = financial.read('total_equity',start=rollback, stop=date).ffill().iloc[-1]
-        pe_past = financial.read('total_equity',start=rollback_past, stop=rollback).ffill().iloc[-1]
-        res = (pe - pe_past)/pe_past
+        A = financial.read('total_assets',start=rollback, stop=date)
+        A = A.apply(lambda col: col.dropna().drop_duplicates().reset_index(drop=True))
+        res =  A.apply(lambda col: (col.dropna().iloc[-1]-col.dropna().iloc[-2])/col.dropna().iloc[-2] if col.count() >= 2 else None)
         res.name = date
         return res
     
     def get_change_inventory(self, date: str | pd.Timestamp) -> pd.Series:
         rollback = quotes_day.get_trading_days_rollback(date, rollback=252)
-        rollback_past = quotes_day.get_trading_days_rollback(date, rollback=504)
-        inv = financial.read('inventory',start=rollback, stop=date).ffill().iloc[-1]
-        asset = financial.read('total_assets',start=rollback, stop=date).ffill().iloc[-1]
+        inv = financial.read('inventory',start=rollback, stop=date)
+        inv = inv.apply(lambda col: col.dropna().drop_duplicates().reset_index(drop=True))
+        A = financial.read('total_assets',start=rollback, stop=date)
+        A = A.apply(lambda col: col.dropna().drop_duplicates().reset_index(drop=True))
 
-        inv_past = financial.read('inventory',start=rollback_past, stop=rollback).ffill().iloc[-1]
-        asset_past = financial.read('total_assets',start=rollback_past, stop=rollback).ffill().iloc[-1]
-
-        avg_asset = (asset + asset_past) / 2
-        res = (inv - inv_past)/avg_asset
+        avg_A = A.apply(lambda col: (col.dropna().iloc[0] + col.dropna().iloc[-1])/2  if col.count() >= 2 else None)
+        avg_inv = inv.apply(lambda col: (col.dropna().iloc[-1] - col.dropna().iloc[0]) if col.count() >= 2 else None)
+        res = avg_inv/avg_A
         res.name = date
         return res
     
-    def get_improve_revenue(self, date: str | pd.Timestamp) -> pd.Series:
-        rollback = quotes_day.get_trading_days_rollback(date, rollback=504)
-        revenue = zscore(financial.read('revenue',start=rollback, stop=date).ffill()[-1:]).squeeze().dropna()
-        expense = zscore(financial.read('total_expense',start=rollback, stop=date).ffill()[-1:]).squeeze().dropna()
-        revenue = revenue.loc[expense.index]
-
-        y = revenue
-        X = sm.add_constant(expense)
-        model = sm.OLS(y, X)
-        res = model.fit()
-        res = res.resid
-        res.index.name = 'order_book_id'
-        res.name = date
-        return res
-    
-    def get_capital_investment(self, date: str | pd.Timestamp) -> pd.Series:
-        rollback = quotes_day.get_trading_days_rollback(date, rollback=252)
-        A_paid= financial.read('cash_paid_for_asset', start=rollback, stop=date).ffill().iloc[-1]
-        A_disposal = financial.read('cash_received_from_disposal_of_asset', start=rollback, stop=date).ffill().iloc[-1]
-        operating_rev = financial.read('operating_revenue', start=rollback, stop=date).ffill().iloc[-1]
-
-        res = (A_paid - A_disposal) / operating_rev
-        res = res.replace([np.inf, -np.inf], np.nan)
-        res.name = date
-        return res
-    
-    def get_capital_investment_ratio(self, date: str | pd.Timestamp) -> pd.Series:
-        ce = self.get_capital_investment(date)
-        res = 0
-        for i in range(252, 252*4, 252): 
-            res += self.get_capital_investment(quotes_day.get_trading_days_rollback(date, i)).fillna(0)
-    
-        res = (ce / (res/3)) -1
-        res = res.replace([np.inf, -np.inf], np.nan)
+    def get_operating_std(self, date: str | pd.Timestamp) -> pd.Series:
+        rollback = quotes_day.get_trading_days_rollback(date, rollback=756)
+        operating_rev = financial.read('operating_revenue', start=rollback, stop=date)
+        operating_rev_unique = operating_rev.apply(lambda col: col.dropna().drop_duplicates().reset_index(drop=True))
+        res = operating_rev_unique.apply(lambda col: (col.dropna().iloc[-1] - col.dropna().iloc[-6:].mean()) / col.dropna().iloc[-6:].std() if col.count() >= 2 else None)
         res.name = date
         return res
