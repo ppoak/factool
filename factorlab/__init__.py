@@ -1,7 +1,7 @@
 from .base import (
     BaseFactor, 
     quotes_day, quotes_min,
-    stock_connect, financial, 
+    stock_connect, financial, industry_info, 
     index_quotes_day, index_weights,
     wscore, zscore, minmax,
     madoutlier, stdoutlier, iqroutlier,
