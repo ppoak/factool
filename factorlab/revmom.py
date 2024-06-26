@@ -13,8 +13,8 @@ class MomentumFactor(BaseFactor):
         price = quotes_day.read("close", start=rollback, stop=date)
         _adj= quotes_day.read("adjfactor", start=rollback, stop=date)
         stock_ret  = np.log(1 + (price * _adj).pct_change(fill_method=None)
-            ).tail(525).sort_index(ascending=False).ewm(halflife=126, adjust=False).mean()
-        res = stock_ret.tail(504).sum()
+            ).tail(525).ewm(halflife=126, adjust=False).mean()
+        res = stock_ret.head(504).sum()
         res.name = date
         return res
     
@@ -88,5 +88,24 @@ class MomentumFactor(BaseFactor):
         sum_up = up.sum()
         sum_down = down.sum()
         res = 100 * (sum_up - sum_down) / (sum_up + sum_down)
+        res.name = date
+        return res
+    
+    def get_time_series_momentum(self, date: str):
+        def get_ret_month(date: str):
+            rollback = quotes_day.get_trading_days_rollback(date, 21)
+            price = quotes_day.read("close", start=rollback, stop=date)
+            _adj= quotes_day.read("adjfactor", start=rollback, stop=date)
+            res = (price * _adj).pct_change(periods=21, fill_method=None).tail(1)
+            return res
+        dates = [quotes_day.get_trading_days_rollback(date, i) for i in range(0, 232, 21)]
+        ret = pd.concat([get_ret_month(d) for d in dates], axis=0)
+        ret = ret.sort_index(ascending=True)
+
+        delta = 2 / (12 + 1)
+        ret_adj = ret - ret.ewm(alpha=delta, adjust=False).mean()
+        std_adj = np.sqrt((ret_adj.std(axis=1)**2).ewm(alpha=delta, adjust=False).mean())
+
+        res = np.sign(ret_adj.head(11).sum() / 12) * ret_adj.loc[date]/std_adj.loc[date]
         res.name = date
         return res
