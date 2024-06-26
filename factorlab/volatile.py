@@ -26,7 +26,7 @@ class VolatileFactor(BaseFactor):
         _adj = quotes_day.read("adjfactor", start=rollback, stop=date)
 
         stock_ret = (price * _adj).pct_change(fill_method=None).tail(252) 
-        res = np.sqrt(((stock_ret - stock_ret.mean()) ** 2).sort_index(ascending=False).ewm(halflife=42, adjust=False).mean().sum())
+        res = np.sqrt(((stock_ret - stock_ret.mean()) ** 2).ewm(halflife=42, adjust=False).mean().sum())
         res.name = date
         return res
     
@@ -55,8 +55,8 @@ class VolatileFactor(BaseFactor):
         rollback = quotes_day.get_trading_days_rollback(date, 252)
         price = quotes_day.read("close", start=rollback, stop=date)
         _adj= quotes_day.read("adjfactor", start=rollback, stop=date)
-        stock_ret = (price * _adj).pct_change(fill_method=None).tail(252).sort_index(ascending=False).ewm(halflife=63, adjust=False).mean()
-        market_ret = index_quotes_day.read('close', code='000985.XSHG', start=rollback, stop=date).pct_change(fill_method=None).tail(252).sort_index(ascending=False).ewm(halflife=63, adjust=False).mean().loc[:,'000985.XSHG']
+        stock_ret = (price * _adj).pct_change(fill_method=None).tail(252).ewm(halflife=63, adjust=False).mean()
+        market_ret = index_quotes_day.read('close', code='000985.XSHG', start=rollback, stop=date).pct_change(fill_method=None).tail(252).ewm(halflife=63, adjust=False).mean().loc[:,'000985.XSHG']
         beta = self.read("market_beta", start=rollback, stop=date)
         
         res = (stock_ret - beta.mul(market_ret, axis=0)).std()
@@ -75,20 +75,12 @@ class VolatileFactor(BaseFactor):
         rollback = quotes_day.get_trading_days_rollback(date, 252)
         price = quotes_day.read("close", start=rollback, stop=date)
         _adj= quotes_day.read("adjfactor", start=rollback, stop=date)
-        stock_ret = (price * _adj).pct_change(fill_method=None).tail(252).sort_index(ascending=False)
-        market_ret = index_quotes_day.read('close', code='000985.XSHG', start=rollback, stop=date).pct_change(fill_method=None).tail(252).sort_index(ascending=False).loc[:,'000985.XSHG']
-    
-        # res = {}
-        # var = np.var(market_ret, ddof=1)
-        # for code in stock_ret.columns:
-        #     covr = np.cov(stock_ret[code],market_ret)[0][1]
-        #     result = covr/var
-        #     res[code] = result
-        # res = pd.Series(res)
+        stock_ret = (price * _adj).pct_change(fill_method=None).tail(252)
+        market_ret = index_quotes_day.read('close', code='000985.XSHG', start=rollback, stop=date).pct_change(fill_method=None).tail(252).loc[:,'000985.XSHG']
 
         h = 63
         alpha = 1 - np.exp(np.log(0.5) / h)
-        weights = pd.Series([alpha * (1 - alpha)**t for t in range(252)][::-1], index=stock_ret.index)
+        weights = pd.Series([alpha * (1 - alpha)**t for t in range(252)], index=stock_ret.index)
         weights /=  np.sum(weights)
 
         X = sm.add_constant(market_ret)
@@ -113,7 +105,7 @@ class VolatileFactor(BaseFactor):
         stock_ret = stock_ret.loc[market_ret.index]
 
         res = {}
-        var = np.var(market_ret, ddof=1)
+        var = np.var(market_ret)
         for code in stock_ret.columns:
             covr = np.cov(stock_ret[code],market_ret)[0][1]
             result = covr/var

@@ -92,10 +92,10 @@ class EvaluationFactor(BaseFactor):
         return res
     
     def get_6quarter_operating_std(self, date: str | pd.Timestamp) -> pd.Series:
-        rollback = quotes_day.get_trading_days_rollback(date, rollback=756)
+        rollback = quotes_day.get_trading_days_rollback(date, rollback=252+126)
         operating_rev = financial.read('operating_revenue', start=rollback, stop=date)
         operating_rev_unique = operating_rev.apply(lambda col: col.dropna().drop_duplicates().reset_index(drop=True))
-        res = operating_rev_unique.apply(lambda col: (col.dropna().iloc[-1] - col.dropna().iloc[-6:].mean()) / col.dropna().iloc[-6:].std() if col.count() >= 2 else None)
+        res = operating_rev_unique.apply(lambda col: (col.dropna().iloc[-1] - col.dropna().mean()) / col.dropna().std() if col.count() >= 2 else None)
         res.name = date
         return res
 

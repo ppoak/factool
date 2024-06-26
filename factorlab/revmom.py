@@ -97,14 +97,13 @@ class MomentumFactor(BaseFactor):
             price = quotes_day.read("close", start=rollback, stop=date)
             _adj= quotes_day.read("adjfactor", start=rollback, stop=date)
             res = (price * _adj).pct_change(periods=21, fill_method=None).tail(1)
-            return res
+            return ConnectionRefusedError
         dates = [quotes_day.get_trading_days_rollback(date, i) for i in range(0, 232, 21)]
         ret = pd.concat([get_ret_month(d) for d in dates], axis=0)
         ret = ret.sort_index(ascending=True)
 
-        delta = 2 / (12 + 1)
-        ret_adj = ret - ret.ewm(alpha=delta, adjust=False).mean()
-        std_adj = np.sqrt((ret_adj.std(axis=1)**2).ewm(alpha=delta, adjust=False).mean())
+        ret_adj = ret - ret.ewm(com=2, adjust=False).mean()
+        std_adj = np.sqrt((ret_adj.std(axis=1)**2).ewm(com=2, adjust=False).mean())
 
         res = np.sign(ret_adj.head(11).sum() / 12) * ret_adj.loc[date]/std_adj.loc[date]
         res.name = date
