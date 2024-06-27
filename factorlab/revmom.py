@@ -97,7 +97,7 @@ class MomentumFactor(BaseFactor):
             price = quotes_day.read("close", start=rollback, stop=date)
             _adj= quotes_day.read("adjfactor", start=rollback, stop=date)
             res = (price * _adj).pct_change(periods=21, fill_method=None).tail(1)
-            return ConnectionRefusedError
+            return res
         dates = [quotes_day.get_trading_days_rollback(date, i) for i in range(0, 232, 21)]
         ret = pd.concat([get_ret_month(d) for d in dates], axis=0)
         ret = ret.sort_index(ascending=True)
