@@ -157,3 +157,31 @@ class PriceVolumeCorr(BaseFactor):
         res = model.resid
         res.name = date
         return res
+
+    def get_price_spread(self, date: str):
+        rollback = quotes_day.get_trading_days_rollback(date, 252)
+        price = quotes_day.read("close", start=rollback, stop=date)
+        _adj = quotes_day.read("adjfactor", start=rollback, stop=date)
+        ret = (price * _adj).pct_change(fill_method=None).tail(252)
+        distance_matrix = 1- ret.corr(method='pearson')
+
+        nearest_stocks = {}
+        for stock in distance_matrix.columns:
+            nearest_stocks[stock] = distance_matrix[stock].sort_values(ascending=True)[1:11].index.tolist()
+
+        reference_prices = {}
+        for stock in nearest_stocks.keys():
+            portfolio_returns = ret[nearest_stocks[stock]].mean(axis=1)
+            reference_prices[stock] = (1 + portfolio_returns).cumprod().iloc[-1]
+
+        reference_prices = pd.Series(reference_prices)
+        res = np.log(price.loc[date]) - np.log(reference_prices)
+        res.name = date
+        return res
+    
+    def get_spread_bias(self, date: str):
+        rollback = quotes_day.get_trading_days_rollback(date, 60)
+        price_spread = self.read("price_spread", start=rollback, stop=date)
+        res = (price_spread.loc[date] - price_spread.mean()) / price_spread.std()
+        res.name = date
+        return res

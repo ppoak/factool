@@ -12,6 +12,7 @@ class RetDistFactor(BaseFactor):
     def get_intraday_distribution(self, date: str) -> pd.DataFrame:
         data = quotes_min.read("close", start=date, stop=date + pd.Timedelta(days=1))
         ret = data.pct_change(fill_method=None)
+        ret.replace([np.inf, -np.inf], np.nan, inplace=True)
         res = pd.concat([ret.skew(), ret.kurt()], axis=1, 
             keys=['intraday_return_skew', 'intraday_return_kurt'])
         res.index = pd.MultiIndex.from_product([

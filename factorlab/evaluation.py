@@ -140,3 +140,22 @@ class EvaluationFactor(BaseFactor):
         res = cogs/avg_inv
         res.name = date
         return res
+    
+    def get_asset_based_marketcap(self, date: str | pd.Timestamp) -> pd.Series:
+        rollback = quotes_day.get_trading_days_rollback(date, rollback=252)
+        asset = financial.read('total_assets', start=rollback, stop=date).ffill().tail(1).squeeze()
+        shares = quotes_day.read("circulation_a", start=date, stop=date)
+        price = quotes_day.read("close", start=date, stop=date)
+        adjfactor = quotes_day.read("adjfactor", start=date, stop=date)
+        res = asset/(shares * price * adjfactor).loc[date]
+        res.name = date
+        return res
+    
+    def get_cash_asset_ratio(self, date: str | pd.Timestamp) -> pd.Series:
+        rollback = quotes_day.get_trading_days_rollback(date, rollback=252)
+        cash_equivalent = financial.read('cash_equivalent', start=rollback, stop=date).ffill().tail(1).squeeze()
+        asset = financial.read('total_assets', start=rollback, stop=date).ffill().tail(1).squeeze()
+        mean_asset = asset/4
+        res = cash_equivalent/mean_asset
+        res.name = date
+        return res
