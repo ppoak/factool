@@ -3,6 +3,9 @@ import numpy as np
 import pandas as pd
 from scipy.stats import boxcox
 from sklearn.preprocessing import PowerTransformer
+import statsmodels.api as sm
+from sklearn.linear_model import LinearRegression
+
 
 def wscore(df: pd.DataFrame, date: pd.Timestamp):
     weight = index_weights.read('000985.XSHG',start=date, stop=date)
@@ -17,7 +20,7 @@ def minmax(df: pd.DataFrame):
     return df.sub(df.min(axis=1), axis=0).div(
         df.max(axis=1) - df.min(axis=1), axis=0)
 
-def madoutlier( # 高度鲁棒：对极端值和异常值非常敏感，适合大量极端值或严重偏态。
+def madoutlier( 
     df: pd.DataFrame, 
     dev: int, 
     drop: bool = False
@@ -33,7 +36,7 @@ def madoutlier( # 高度鲁棒：对极端值和异常值非常敏感，适合�
         df.le(thresh_up, axis=0) & df.ge(thresh_down, axis=0),
         other=np.nan, axis=0).where(~df.isna())
 
-def stdoutlier( # 适用于正态数据
+def stdoutlier( 
     df: pd.DataFrame, 
     dev: int, 
     drop: bool = False
@@ -48,7 +51,7 @@ def stdoutlier( # 适用于正态数据
         df.le(thresh_up, axis=0) & df.ge(thresh_down, axis=0),
         other=np.nan, axis=0).where(~df.isna())
 
-def iqroutlier( # 适合数据的分布大致对称或略微偏态。
+def iqroutlier( 
     df: pd.DataFrame, 
     dev: int, 
     drop: bool = False
@@ -67,13 +70,13 @@ def fillna(
 ):
     return df.fillna(val)
 
-def log(df: pd.DataFrame): # 适用于分布简单的右偏数据，适合处理正值
+def log(df: pd.DataFrame):
     return np.log((df + 1e-6).sub(df.min(axis=1), axis=0))
 
-def sqrt(df: pd.DataFrame): # 减少数据的范围
+def sqrt(df: pd.DataFrame):
     return np.sqrt(df.sub(df.min(axis=1), axis=0))
 
-def box_cox(df: pd.DataFrame): # 正态化, 适合处理正值且偏态不是很严重的数据。
+def box_cox(df: pd.DataFrame): 
     def safe_boxcox(row):
         non_nan_values = row.dropna()
         if non_nan_values.empty:
@@ -87,7 +90,7 @@ def box_cox(df: pd.DataFrame): # 正态化, 适合处理正值且偏态不是很
     df_transformed = df.apply(safe_boxcox, axis=1, result_type='expand')
     return df_transformed
 
-def yeo_johnson(df: pd.DataFrame): # 正态化, 适合偏态较严重，可以含零值和负值的数据
+def yeo_johnson(df: pd.DataFrame): 
     def transform_row(row):
         row_reshaped = row.values.reshape(-1, 1)
         transformed_row = pt.fit_transform(row_reshaped)
@@ -101,7 +104,38 @@ def yeo_johnson(df: pd.DataFrame): # 正态化, 适合偏态较严重，可以�
 def tsmean(df: pd.DataFrame, n: int = 20):
     return df.rolling(n).mean()
 
-
+def neutralization( 
+    df: pd.DataFrame, 
+    industry: bool = False, 
+    market: bool = False
+): 
+    results = pd.DataFrame()
+    for date, factor in df.groupby(df.index):
+        X = pd.DataFrame()
+        
+        if industry:
+            ind = industry_info.read('first_industry_name', start=date, stop=date).loc[date]
+            ind = pd.get_dummies(ind, prefix='', prefix_sep='')
+            ind = ind.select_dtypes(include=[bool]).astype(int) 
+            X = X.join(ind, how='outer') if not X.empty else ind
+        
+        if market:
+            shares = quotes_day.read("circulation_a", start=date, stop=date)
+            price = quotes_day.read("close", start=date, stop=date)
+            adjfactor = quotes_day.read("adjfactor", start=date, stop=date)
+            marketcap = np.log(shares * price * adjfactor).loc[date]
+            marketcap.name = 'marketcap'
+            X = X.join(marketcap, how='outer') if not X.empty else pd.DataFrame(marketcap)
+       
+        if not X.empty:
+            X = sm.add_constant(X).dropna()
+            y = factor.squeeze().reindex(X.index)
+            model = sm.OLS(y, X).fit()
+            res = model.resid
+            res.name = date
+            results = pd.concat([results, res.to_frame().T]) if not results.empty else res.to_frame().T
+    
+    return results
 class BaseFactor(quool.Factor):
 
     def get_future(

@@ -6,7 +6,8 @@ import factorlab as lab
 import dataforge as forge
 from tqdm import  tqdm
 from joblib import Parallel, delayed
-
+from sklearn.linear_model import LinearRegression
+import statsmodels.api as sm
 class BarraReturn(quool.DatetimeTable, lab.Factor):
 
     def get_barra_return(self, date: str):
@@ -49,7 +50,7 @@ class BarraReturn(quool.DatetimeTable, lab.Factor):
         country = pd.Series(np.ones(len(style.index)), index=style.index, name='country').to_frame()
         X = pd.concat([country, ind, style], axis=1).dropna()
 
-        # 回归权重矩阵
+        # 回归权重矩阵，每个资产特有风险的不同
         reg_weight = np.sqrt(size) / np.sqrt(size).sum()
         reg_weight = reg_weight.reindex(X.index)
         reg_weight.index.name = ''
@@ -64,21 +65,23 @@ class BarraReturn(quool.DatetimeTable, lab.Factor):
         ind_weight_adj = -ind_weight.div(ind_weight.iloc[-1]).iloc[:-1]
         R[len(ind.columns),1:len(ind_weight_adj)+1] = ind_weight_adj.values
         R = pd.DataFrame(R, index=X.columns, columns=X.columns.drop(ind.columns[-1]))
-
+        
+        # LinearRegression 假设同方差性，没有V矩阵
         # 带约束，且考虑异方差的股票权重矩阵。 omega = R @ (R.T @ X.T @ V @ X @ R)^-1 @ R.T @ X.T @ V
         W = np.dot(R.dot(np.linalg.inv(R.T.dot(X.T).dot(V).dot(X).dot(R))),R.T).dot(X.T).dot(V)
         W = pd.DataFrame(W, index=X.columns, columns=X.index)
 
-        # 无约束，但考虑异方差的股票权重矩阵，可以直接WLS。omega = (X.T @ V @ X)^-1 @ X.T @ V
+        # 无约束，但考虑异方差的股票权重矩阵。omega = (X.T @ V @ X)^-1 @ X.T @ V
         # W = np.linalg.inv(X.T.dot(V).dot(X)).dot(X.T).dot(V)
         # W = pd.DataFrame(W, index=X.columns, columns=X.index)
 
-        # 无约束，无异方差的股票权重矩阵，可以直接OLS。omega = (X.T @ X)^-1 @ X.T
+        # 无约束，无异方差的股票权重矩阵。omega = (X.T @ X)^-1 @ X.T
         # W = np.linalg.inv(X.T.dot(X)).dot(X.T)
         # W = pd.DataFrame(W, index=X.columns, columns=X.index)
         
         # 因子收益率, r=不考虑rf的超额收益
         # r = lab.barra_factor.get_future(start=date, stop=date) #用vwap计算收益率
+        # W.dot(X).round(4) 验证
         r = (price * _adj).pct_change(fill_method=None).loc[date]
         r = r.reindex(X.index).dropna()
         r.name = 'ret'
@@ -90,7 +93,7 @@ class BarraReturn(quool.DatetimeTable, lab.Factor):
         return f   
 
 barrareturn = BarraReturn("./data/barra-returns")
-data = barrareturn.get("barra_return", start='20140201', stop="20240101", n_jobs= 10)
+data = barrareturn.get("barra_return", start='20140201', stop="20240101", n_jobs= 1)
 # print(data)
 # data.index.name = 'date'
 # barrareturn.update(data)

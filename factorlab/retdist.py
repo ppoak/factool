@@ -22,7 +22,14 @@ class RetDistFactor(BaseFactor):
     def get_down_trend_volatility(self, date: str) -> pd.DataFrame:
         price = quotes_min.read("close", start=date, stop=date + pd.Timedelta(days=1))
         ret = price.pct_change(fill_method=None)
-        res = ret.apply(lambda x: x[x < 0].pow(2).sum() / x.pow(2).sum())
+        def safe_divide(x):
+            negative_sum = x[x < 0].pow(2).sum()
+            total_sum = x.pow(2).sum()
+            if total_sum == 0:
+                return np.nan
+            else:
+                return negative_sum / total_sum
+        res = ret.apply(safe_divide)
         res.name = date
         return res
         

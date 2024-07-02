@@ -6,7 +6,7 @@ from .base import (
     wscore, zscore, minmax,
     madoutlier, stdoutlier, iqroutlier,
     fillna, log, tsmean, sqrt, box_cox, 
-    yeo_johnson,
+    yeo_johnson, neutralization
 )
 
 from .marketsize import MarketSizeFactor
