@@ -112,6 +112,8 @@ def neutralization(
     results = pd.DataFrame()
     for date, factor in df.groupby(df.index):
         X = pd.DataFrame()
+        factor = factor.squeeze()
+        factor.name = 'factor'
         
         if industry:
             ind = industry_info.read('first_industry_name', start=date, stop=date).loc[date]
@@ -128,8 +130,9 @@ def neutralization(
             X = X.join(marketcap, how='outer') if not X.empty else pd.DataFrame(marketcap)
        
         if not X.empty:
-            X = sm.add_constant(X).dropna()
-            y = factor.squeeze().reindex(X.index)
+            df = pd.concat([X,factor],axis=1).dropna()
+            X = sm.add_constant(df.drop('factor', axis=1))
+            y = df['factor']
             model = sm.OLS(y, X).fit()
             res = model.resid
             res.name = date
