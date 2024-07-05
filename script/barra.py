@@ -93,7 +93,7 @@ class BarraReturn(quool.DatetimeTable, lab.Factor):
         return f   
 
 barrareturn = BarraReturn("./data/barra-returns")
-data = barrareturn.get("barra_return", start='20140201', stop="20240101", n_jobs= 1)
+data = barrareturn.get("barra_return", start='20140201', stop="20240101", n_jobs= 5)
 # print(data)
 # data.index.name = 'date'
 # barrareturn.update(data)

@@ -70,12 +70,9 @@ class VolDistFactor(BaseFactor):
         return res
 
     def get_volume_ratio_open30_20d(self, date: pd.Timestamp) -> pd.Series:
-        res = pd.DataFrame()
-        for i in range(0, 20, 1): 
-            if res.empty:
-                res = self.get_volume_ratio_open30(quotes_day.get_trading_days_rollback(date, i)).to_frame().T
-            else:
-                res = pd.concat([res, self.get_volume_ratio_open30(quotes_day.get_trading_days_rollback(date, i)).to_frame().T])
-        res = res.ewm(alpha = 2/21, adjust=False).mean().sum()/20
+        day = 20
+        rollback = quotes_day.get_trading_days_rollback(date, day)
+        res = self.read('volume_ratio_open30',start=rollback, stop=date).tail(day)
+        res = res.sort_index().ewm(alpha = 2/(day+1), adjust=False).mean().sum()/day
         res.name = date
         return res

@@ -13,7 +13,7 @@ class MomentumFactor(BaseFactor):
         price = quotes_day.read("close", start=rollback, stop=date)
         _adj= quotes_day.read("adjfactor", start=rollback, stop=date)
         stock_ret  = np.log(1 + (price * _adj).pct_change(fill_method=None)
-            ).tail(525).ewm(halflife=126, adjust=False).mean()
+            ).tail(525).sort_index().ewm(halflife=126, adjust=False).mean()
         res = stock_ret.head(504).sum()
         res.name = date
         return res
@@ -100,7 +100,7 @@ class MomentumFactor(BaseFactor):
             return res
         dates = [quotes_day.get_trading_days_rollback(date, i) for i in range(0, 232, 21)]
         ret = pd.concat([get_ret_month(d) for d in dates], axis=0)
-        ret = ret.sort_index(ascending=True)
+        ret = ret.sort_index()
 
         ret_adj = ret - ret.ewm(com=2, adjust=False).mean()
         std_adj = np.sqrt((ret_adj.std(axis=1)**2).ewm(com=2, adjust=False).mean())
