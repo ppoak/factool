@@ -164,3 +164,49 @@ class PriceVolumeCorr(BaseFactor):
         res = (price_spread.loc[date] - price_spread.mean()) / price_spread.std()
         res.name = date
         return res
+    
+
+    def get_rsi_df(self, date: str): # 后续做市值中性化
+        rollback = quotes_day.get_trading_days_rollback(date, 20)
+        price = quotes_day.read("close", start=rollback, stop=date)
+        _adj = quotes_day.read("adjfactor", start=rollback, stop=date)
+        ret = (price * _adj).pct_change(fill_method=None).tail(20)
+        up = ret[ret>0].mean()
+        down = ret[ret<0].mean().abs()
+        res = up/(up+down)
+        res.name = date
+        return res
+    
+    def get_rsi_hf_infront(self, date: str): 
+        price = quotes_min.read("close", start=date, stop=date + pd.Timedelta(days=1))
+        ret = price.pct_change(fill_method=None)
+        up = ret[ret>0].mean()
+        down = ret[ret<0].mean().abs()
+        res = up/(up+down)
+        res.name = date
+        return res
+
+    def get_rsi_hf(self, date: str):
+        rollback = quotes_day.get_trading_days_rollback(date, 20)
+        res = self.read('rsi_hf_infront', start=rollback, stop=date).tail(20).mean()
+        res.name = date
+        return res
+    
+    def get_compound_rsi_hf_infront(self, date: str):
+        price = quotes_min.read("close", start=date, stop=date + pd.Timedelta(days=1))
+        ret = price.pct_change(fill_method=None)
+        up = ret[ret>0].mean()
+        down = ret[ret<0].mean().abs()
+        rsi = up/(up+down)
+        volume = quotes_day.read("volume", start=date, stop=date)
+        shares = quotes_day.read("circulation_a", start=date, stop=date)
+        turnover = (volume / shares).sum()
+        res = turnover * rsi
+        res.name = date
+        return res
+    
+    def get_compound_rsi_hf(self, date: str):
+        rollback = quotes_day.get_trading_days_rollback(date, 20)
+        res = self.read('ompound_rsi_hf_infront', start=rollback, stop=date).tail(20).mean()
+        res.name = date
+        return res
