@@ -192,21 +192,13 @@ class PriceVolumeCorr(BaseFactor):
         res.name = date
         return res
     
-    def get_compound_rsi_hf_infront(self, date: str):
-        price = quotes_min.read("close", start=date, stop=date + pd.Timedelta(days=1))
-        ret = price.pct_change(fill_method=None)
-        up = ret[ret>0].mean()
-        down = ret[ret<0].mean().abs()
-        rsi = up/(up+down)
-        volume = quotes_day.read("volume", start=date, stop=date)
-        shares = quotes_day.read("circulation_a", start=date, stop=date)
-        turnover = (volume / shares).sum()
-        res = turnover * rsi
-        res.name = date
-        return res
-    
     def get_compound_rsi_hf(self, date: str):
         rollback = quotes_day.get_trading_days_rollback(date, 20)
-        res = self.read('ompound_rsi_hf_infront', start=rollback, stop=date).tail(20).mean()
+        rsi = self.read('rsi_hf_infront', start=rollback, stop=date).tail(20)
+        volume = quotes_day.read("volume", start=rollback, stop=date)
+        shares = quotes_day.read("circulation_a", start=rollback, stop=date)
+        turnover = (volume / shares).tail(20)
+        weight = turnover/turnover.sum()
+        res = (weight * rsi).sum()
         res.name = date
         return res
