@@ -165,8 +165,7 @@ class PriceVolumeCorr(BaseFactor):
         res.name = date
         return res
     
-
-    def get_rsi_df(self, date: str): # 后续做市值中性化
+    def get_20d_rsi(self, date: str): 
         rollback = quotes_day.get_trading_days_rollback(date, 20)
         price = quotes_day.read("close", start=rollback, stop=date)
         _adj = quotes_day.read("adjfactor", start=rollback, stop=date)
@@ -177,7 +176,7 @@ class PriceVolumeCorr(BaseFactor):
         res.name = date
         return res
     
-    def get_rsi_hf_infront(self, date: str): 
+    def get_minute_rsi(self, date: str): 
         price = quotes_min.read("close", start=date, stop=date + pd.Timedelta(days=1))
         ret = price.pct_change(fill_method=None)
         up = ret[ret>0].mean()
@@ -186,19 +185,60 @@ class PriceVolumeCorr(BaseFactor):
         res.name = date
         return res
 
-    def get_rsi_hf(self, date: str):
-        rollback = quotes_day.get_trading_days_rollback(date, 20)
-        res = self.read('rsi_hf_infront', start=rollback, stop=date).tail(20).mean()
+    def get_5minute_rsi(self, date: str): 
+        price = quotes_min.read("close", start=date, stop=date + pd.Timedelta(days=1))
+        ret = price.pct_change(periods=5, fill_method=None)
+        up = ret[ret>0].mean()
+        down = ret[ret<0].mean().abs()
+        res = up/(up+down)
         res.name = date
         return res
     
-    def get_compound_rsi_hf(self, date: str):
+    def get_minute_rsi_rolling_mean20d(self, date: str):
         rollback = quotes_day.get_trading_days_rollback(date, 20)
-        rsi = self.read('rsi_hf_infront', start=rollback, stop=date).tail(20)
+        res = self.read('minute_rsi', start=rollback, stop=date).tail(20).mean()
+        res.name = date
+        return res
+
+    def get_5minute_rsi_rolling_mean20d(self, date: str):
+        rollback = quotes_day.get_trading_days_rollback(date, 20)
+        res = self.read('5minute_rsi', start=rollback, stop=date).tail(20).mean()
+        res.name = date
+        return res
+    
+    def get_minute_rsi_weighted_by_20d_turnover(self, date: str):
+        rollback = quotes_day.get_trading_days_rollback(date, 20)
+        rsi = self.read('minute_rsi', start=rollback, stop=date).tail(20)
         volume = quotes_day.read("volume", start=rollback, stop=date)
         shares = quotes_day.read("circulation_a", start=rollback, stop=date)
         turnover = (volume / shares).tail(20)
         weight = turnover/turnover.sum()
         res = (weight * rsi).sum()
         res.name = date
+        return res
+    
+    def gets_20d_maxret(self, date: str):
+        rollback = quotes_day.get_trading_days_rollback(date, 20)
+        price = quotes_day.read("close", start=rollback, stop=date)
+        ret = price.pct_change(fill_method=None).tail(20)
+        res = ret.max()
+        res.index.name = 'date' 
+        return res
+    
+    def get_20d_top10_cum_ret(self, date: str):
+        rollback = quotes_day.get_trading_days_rollback(date, 20)
+        price = quotes_day.read("close", start=rollback, stop=date)
+        ret = price.pct_change(fill_method=None).tail(20)
+        res = ret.apply(lambda x: x.nlargest(10).sum(), axis=0)
+        res.name = 'date' 
+        return res
+
+    def get_20d_max_truerange(self, date: str):
+        rollback = quotes_day.get_trading_days_rollback(date, 20)
+        prev_close = quotes_day.read("close", start=rollback, stop=date).shift(1)
+        high = quotes_day.read("high", start=rollback, stop=date)
+        low = quotes_day.read("low", start=rollback, stop=date)
+        res = np.maximum.reduce([(high - low)/prev_close, abs(high - prev_close)/prev_close,  abs(prev_close - low)/prev_close]) # 每行最大值
+        res = pd.DataFrame(res, index=high.index, columns=high.columns).tail(20).max()
+        res.name = 'date' 
         return res
