@@ -3,6 +3,7 @@ import pandas as pd
 import statsmodels.api as sm
 from .base import (
     quotes_day, quotes_min, industry_info, 
+    barra, barra_returns,
     wscore, neutralization, BaseFactor
 )
 
@@ -220,7 +221,8 @@ class PriceVolumeCorr(BaseFactor):
     def gets_20d_maxret(self, date: str):
         rollback = quotes_day.get_trading_days_rollback(date, 20)
         price = quotes_day.read("close", start=rollback, stop=date)
-        ret = price.pct_change(fill_method=None).tail(20)
+        _adj = quotes_day.read("adjfactor", start=rollback, stop=date)
+        ret = (price * _adj).pct_change(fill_method=None).tail(20)
         res = ret.max()
         res.index.name = 'date' 
         return res
@@ -228,17 +230,213 @@ class PriceVolumeCorr(BaseFactor):
     def get_20d_top10_cum_ret(self, date: str):
         rollback = quotes_day.get_trading_days_rollback(date, 20)
         price = quotes_day.read("close", start=rollback, stop=date)
-        ret = price.pct_change(fill_method=None).tail(20)
+        _adj = quotes_day.read("adjfactor", start=rollback, stop=date)
+        ret = (price * _adj).pct_change(fill_method=None).tail(20)
         res = ret.apply(lambda x: x.nlargest(10).sum(), axis=0)
         res.name = 'date' 
         return res
 
     def get_20d_max_truerange(self, date: str):
         rollback = quotes_day.get_trading_days_rollback(date, 20)
-        prev_close = quotes_day.read("close", start=rollback, stop=date).shift(1)
-        high = quotes_day.read("high", start=rollback, stop=date)
-        low = quotes_day.read("low", start=rollback, stop=date)
+        _adj = quotes_day.read("adjfactor", start=rollback, stop=date)
+        prev_close = (quotes_day.read("close", start=rollback, stop=date) * _adj).shift(1)
+        high = (quotes_day.read("high", start=rollback, stop=date) * _adj)
+        low = (quotes_day.read("low", start=rollback, stop=date) * _adj)
         res = np.maximum.reduce([(high - low)/prev_close, abs(high - prev_close)/prev_close,  abs(prev_close - low)/prev_close]) # 每行最大值
         res = pd.DataFrame(res, index=high.index, columns=high.columns).tail(20).max()
         res.name = 'date' 
+        return res
+
+    def get_industry_co_20d_maxret_citics(self, date: str) -> pd.Series:
+        rollback = quotes_day.get_trading_days_rollback(date, 20)
+        price = quotes_day.read("close", start=rollback, stop=date)
+        _adj = quotes_day.read("adjfactor", start=rollback, stop=date)
+        ret = (price * _adj).pct_change(fill_method=None).tail(20)
+        max_ret = ret.idxmax()
+
+        ind = industry_info.read(start=date, stop=date)['first_industry_name'].reset_index(level='date', drop=True)
+        ind_columns = ind.unique()
+        ind_ret = barra_returns.read(start=rollback, stop=date).tail(20)
+        ind_ret = ind_ret[ind_columns]
+
+        common_idx = ind.index.intersection(max_ret.index)
+        max_ret = max_ret.loc[common_idx]
+        
+        res = pd.DataFrame({
+            'order_book_id': max_ret.index,
+            'date': max_ret.values,
+            'industry': max_ret.index.map(ind)
+        })
+ 
+        def get_industry_return(row):
+            date = row['date']
+            industry = row['industry']
+            if date in ind_ret.index:
+                return ind_ret.at[date, industry]
+            else:
+                return np.nan
+        res['industry_return'] = res.apply(get_industry_return, axis=1)
+
+        res = res.set_index('order_book_id')['industry_return']
+        res.name = date
+        return res
+    
+    def get_industry_co_20d_top5_cum_ret(self, date: str) -> pd.Series:
+        rollback = quotes_day.get_trading_days_rollback(date, 20)
+        price = quotes_day.read("close", start=rollback, stop=date)
+        _adj = quotes_day.read("adjfactor", start=rollback, stop=date)
+        ret = (price * _adj).pct_change(fill_method=None).tail(20)
+        max_ret = ret.apply(lambda x: x.nlargest(5).index, axis=0).T
+
+        ind = industry_info.read(start=date, stop=date)['first_industry_name'].reset_index(level='date', drop=True)
+        ind_columns = ind.unique()
+        ind_ret = barra_returns.read(start=rollback, stop=date).tail(20)
+        ind_ret = ind_ret[ind_columns]
+
+        common_idx = ind.index.intersection(max_ret.index)
+        max_ret = max_ret.loc[common_idx]
+        max_ret['industry'] = max_ret.index.map(ind)
+
+        def get_industry_return(date, industry):
+            try:
+                return ind_ret.at[date, industry]
+            except KeyError:
+                return pd.NA 
+        res = max_ret.apply(lambda row: row[:-1].apply(lambda date: get_industry_return(date, row['industry'])), axis=1).sum(axis=1)
+        res.index.name = 'order_book_id' 
+        res.name = date
+        return res
+    
+    def get_industry_co_20d_max_truerange(self, date: str) -> pd.Series:
+        rollback = quotes_day.get_trading_days_rollback(date, 20)
+        _adj = quotes_day.read("adjfactor", start=rollback, stop=date)
+        prev_close = (quotes_day.read("close", start=rollback, stop=date) * _adj).shift(1)
+        high = quotes_day.read("high", start=rollback, stop=date) * _adj
+        low = quotes_day.read("low", start=rollback, stop=date) * _adj
+        tr = np.maximum.reduce([(high - low)/prev_close, abs(high - prev_close)/prev_close,  abs(prev_close - low)/prev_close]) # 每行最大值
+        tr = pd.DataFrame(tr, index=high.index, columns=high.columns).tail(20)
+        max_tr = tr.idxmax()
+
+        ind = industry_info.read(start=date, stop=date)['first_industry_name'].reset_index(level='date', drop=True)
+        ind_columns = ind.unique()
+        ind_ret = barra_returns.read(start=rollback, stop=date).tail(20)
+        ind_ret = ind_ret[ind_columns]
+
+        common_idx = ind.index.intersection(max_tr.index)
+        max_tr = max_tr.loc[common_idx]
+        
+        res = pd.DataFrame({
+            'order_book_id': max_tr.index,
+            'date': max_tr.values,
+            'industry': max_tr.index.map(ind)
+        })
+ 
+        def get_industry_return(row):
+            date = row['date']
+            industry = row['industry']
+            if date in ind_ret.index:
+                return ind_ret.at[date, industry]
+            else:
+                return np.nan
+        res['industry_return'] = res.apply(get_industry_return, axis=1)
+
+        res = res.set_index('order_book_id')['industry_return']
+        res.name = date
+        return res
+    
+    def get_industry_co_20d_top5_cumret_weighted(self, date: str) -> pd.Series:
+        rollback = quotes_day.get_trading_days_rollback(date, 20)
+        price = quotes_day.read("close", start=rollback, stop=date)
+        _adj = quotes_day.read("adjfactor", start=rollback, stop=date)
+        ret = (price * _adj).pct_change(fill_method=None).tail(20)
+        max_ret = ret.apply(lambda x: x.nlargest(5).index, axis=0).T
+
+        ind = industry_info.read(start=date, stop=date)['first_industry_name'].reset_index(level='date', drop=True)
+        ind_columns = ind.unique()
+        ind_ret = barra_returns.read(start=rollback, stop=date).tail(20)
+        ind_ret = ind_ret[ind_columns]
+
+        # ind = barra.read(start = date, stop = date)[ind_columns].idxmax(axis=1).reset_index(level='date', drop=True)
+        common_idx = ind.index.intersection(max_ret.index)
+        max_ret = max_ret.loc[common_idx]
+        max_ret['industry'] = max_ret.index.map(ind)
+
+        def get_industry_return(date, industry):
+            try:
+                return ind_ret.at[date, industry]
+            except KeyError:
+                return pd.NA 
+        res = max_ret.apply(lambda row: row[:-1].apply(lambda date: get_industry_return(date, row['industry'])), axis=1)
+        n = 5
+        weights = np.array([2 ** -((i - 1) / (n - 1)) for i in range(1, n + 1)])    
+        res = res.multiply(weights).sum(axis=1)
+        res.name = date
+        return res
+    
+    def get_industry_co_20d_top5_cum_pricevolume_weighted(self, date: str) -> pd.Series:
+        rollback = quotes_day.get_trading_days_rollback(date, 20)
+        price = quotes_day.read("close", start=rollback, stop=date)
+        _adj = quotes_day.read("adjfactor", start=rollback, stop=date)
+        ret = (price * _adj).pct_change(fill_method=None).tail(20)
+        volume = quotes_day.read("volume", start=rollback, stop=date).tail(20) 
+        max_price_volume = (ret*volume).apply(lambda x: x.nlargest(5).index, axis=0).T
+
+        ind = industry_info.read(start=date, stop=date)['first_industry_name'].reset_index(level='date', drop=True)
+        ind_columns = ind.unique()
+        ind_ret = barra_returns.read(start=rollback, stop=date).tail(20)
+        ind_ret = ind_ret[ind_columns]
+
+        common_idx = ind.index.intersection(max_price_volume.index)
+        max_price_volume = max_price_volume.loc[common_idx]
+        max_price_volume['industry'] = max_price_volume.index.map(ind)
+
+        def get_industry_return(date, industry):
+            try:
+                return ind_ret.at[date, industry]
+            except KeyError:
+                return pd.NA 
+        res = max_price_volume.apply(lambda row: row[:-1].apply(lambda date: get_industry_return(date, row['industry'])), axis=1)
+        n = 5
+        weights = np.array([2 ** -((i - 1) / (n - 1)) for i in range(1, n + 1)])    
+        res = res.multiply(weights).sum(axis=1)
+        res.name = date
+        return res
+
+    def get_industry_co_cum_bottom15_pricevolume_weighted(self, date: str) -> pd.Series:
+        rollback = quotes_day.get_trading_days_rollback(date, 20)
+        price = quotes_day.read("close", start=rollback, stop=date)
+        _adj = quotes_day.read("adjfactor", start=rollback, stop=date)
+        ret = (price * _adj).pct_change(fill_method=None).tail(20)
+        volume = quotes_day.read("volume", start=rollback, stop=date).tail(20) 
+        smallest_price_volume = (ret*volume).apply(lambda x: x.nsmallest(15).index, axis=0).T
+
+        ind = industry_info.read(start=date, stop=date)['first_industry_name'].reset_index(level='date', drop=True)
+        ind_columns = ind.unique()
+        ind_ret = barra_returns.read(start=rollback, stop=date).tail(20)
+        ind_ret = ind_ret[ind_columns]
+
+        common_idx = ind.index.intersection(smallest_price_volume.index)
+        smallest_price_volume = smallest_price_volume.loc[common_idx]
+        smallest_price_volume['industry'] = smallest_price_volume.index.map(ind)
+
+        def get_industry_return(date, industry):
+            try:
+                return ind_ret.at[date, industry]
+            except KeyError:
+                return pd.NA 
+        res = smallest_price_volume.apply(lambda row: row[:-1].apply(lambda date: get_industry_return(date, row['industry'])), axis=1)
+        n = 15
+        weights = np.array([2 ** -((i - 1) / (n - 1)) for i in range(1, n + 1)])    
+        res = res.multiply(weights).sum(axis=1)
+        res.index.name = 'order_book_id' 
+        res.name = date
+        return res
+
+
+    def get_compound_industry_co_reverse_momemtum(self, date: str, universe: list) -> pd.Series:
+        vicm = self.read('industry_co_20d_top5_cum_pricevolume_weighted', start=date, stop=date)
+        vicr = self.read('industry_co_cum_bottom15_pricevolume_weighted',start=date, stop=date)
+        res = vicm - vicr
+        res.index.name = 'order_book_id' 
+        res.name = date
         return res

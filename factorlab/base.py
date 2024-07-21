@@ -175,3 +175,5 @@ financial = quool.Factor("./data/financial", code_level="order_book_id", date_le
 index_weights = quool.Factor("./data/index-weights", code_level="order_book_id", date_level="date")
 index_quotes_day = quool.Factor("./data/index-quotes-day", code_level="order_book_id", date_level="date")
 industry_info = quool.Factor("./data/industry-info", code_level="order_book_id", date_level="date")
+barra = quool.Factor("./data/barra-factor-rq", code_level="order_book_id", date_level="date")
+barra_returns = quool.Factor("./data/barra-returns-rq", code_level="order_book_id", date_level="date")

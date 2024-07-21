@@ -2,7 +2,8 @@ from .base import (
     BaseFactor, 
     quotes_day, quotes_min,
     stock_connect, financial, industry_info, 
-    index_quotes_day, index_weights,
+    index_quotes_day, index_weights, barra,
+    barra_returns,
     wscore, zscore, minmax,
     madoutlier, stdoutlier, iqroutlier,
     fillna, log, tsmean, sqrt, box_cox, 
@@ -35,6 +36,6 @@ class Factor(
 ):
     pass
     
-barra_factor = Factor("./data/barra-factor", code_level="order_book_id", date_level="date")
+barra = Factor("./data/barra-factor-rq", code_level="order_book_id", date_level="date")
 factor = Factor("./data/factor", code_level="order_book_id", date_level="date")
 alpha = Factor("./data/alpha", code_level="order_book_id", date_level="date")
