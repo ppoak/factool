@@ -318,3 +318,9 @@ class VolatileFactor(BaseFactor):
         res.name = date
         return res
     
+    def get_daily_std(self, date: str) -> pd.Series:
+        res = quotes_min.read("close", start=date, stop=date + pd.Timedelta(days=1)).pct_change(fill_method=None)
+        res = res.replace([np.inf, -np.inf], np.nan)
+        res = res.std()
+        res.name = date
+        return res

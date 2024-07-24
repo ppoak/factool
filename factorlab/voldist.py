@@ -70,9 +70,66 @@ class VolDistFactor(BaseFactor):
         return res
 
     def get_volume_ratio_open30_20d(self, date: pd.Timestamp) -> pd.Series:
-        day = 20
-        rollback = quotes_day.get_trading_days_rollback(date, day)
-        res = self.read('volume_ratio_open30',start=rollback, stop=date).tail(day)
-        res = res.sort_index().ewm(alpha = 2/(day+1), adjust=False).mean().sum()/day
+        rollback = quotes_day.get_trading_days_rollback(date, 20)
+        res = self.read('volume_ratio_open30',start=rollback, stop=date).tail(20)
+        res = res.sort_index().ewm(alpha = 2/(20+1), adjust=False).mean().sum()/20
+        res.name = date
+        return res
+    
+    def get_volume_ratio_open5(self, date: pd.Timestamp) -> pd.Series:
+        df = quotes_min.read("volume", start=date, stop=date + pd.Timedelta(days=1))
+        morning_session = df.between_time('09:30:00', '09:35:00').sum()
+        afternoon_session = df.between_time('13:00:00', '13:05:00').sum()
+        total = df.sum()
+        res = (morning_session + afternoon_session)/total
+        res.name = date
+        return res
+    
+    def get_volume_ratio_top20_price(self, date: pd.Timestamp) -> pd.Series:
+        volume = quotes_min.read("volume", start=date, stop=date + pd.Timedelta(days=1))
+        total = volume.sum()
+        price = quotes_min.read("close", start=date, stop=date + pd.Timedelta(days=1))
+        price = price[price > price.quantile(0.8)]
+        mask = price.notna()
+        volume = volume[mask]
+        res = volume.sum()/total 
+        res.name = date
+        return res
+
+    def get_volume_ratio_bottom20_price(self, date: pd.Timestamp) -> pd.Series:
+        volume = quotes_min.read("volume", start=date, stop=date + pd.Timedelta(days=1))
+        total = volume.sum()
+        price = quotes_min.read("close", start=date, stop=date + pd.Timedelta(days=1))
+        price = price[price < price.quantile(0.2)]
+        mask = price.notna()
+        volume = volume[mask]
+        res = volume.sum()/total 
+        res.name = date
+        return res
+
+    def get_std_weighted_volume(self, date: pd.Timestamp) -> pd.Series:
+        rollback = quotes_day.get_trading_days_rollback(date, 20)
+        volume = quotes_day.read("volume", start=rollback, stop=date)
+        std = self.read('daily_std', start=rollback, stop=date)
+        res = (volume * std.div(std.sum(axis=0),axis=1)).sum()
+        res = res/res.sum()
+        res.name = date
+        return res
+    
+    def get_std_price_corr(self, date: pd.Timestamp) -> pd.Series:
+        rollback = quotes_day.get_trading_days_rollback(date, 20)
+        std = self.read('daily_std', start=rollback, stop=date)
+        price = self.read('volume_weighted_price', start=rollback, stop=date)
+        res = std.corrwith(price)
+        res.name = date
+        return res
+    
+    def get_std_top20_ret(self, date: pd.Timestamp) -> pd.Series:
+        rollback = quotes_day.get_trading_days_rollback(date, 20)
+        std = self.read('daily_std', start=rollback, stop=date)
+        std = std[std>std.quantile(0.8)]
+        mask = std.notna()
+        ret = quotes_day.read("close", start=rollback, stop=date).pct_change(fill_method=None)
+        res = ret[mask].sum()
         res.name = date
         return res

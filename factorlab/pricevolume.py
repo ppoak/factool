@@ -3,7 +3,7 @@ import pandas as pd
 import statsmodels.api as sm
 from .base import (
     quotes_day, quotes_min, industry_info, 
-    barra, barra_returns,
+    barra_rq, barra_returns_rq, industry_returns,
     wscore, neutralization, BaseFactor
 )
 
@@ -218,13 +218,13 @@ class PriceVolumeCorr(BaseFactor):
         res.name = date
         return res
     
-    def gets_20d_maxret(self, date: str):
+    def get_20d_maxret(self, date: str):
         rollback = quotes_day.get_trading_days_rollback(date, 20)
         price = quotes_day.read("close", start=rollback, stop=date)
         _adj = quotes_day.read("adjfactor", start=rollback, stop=date)
         ret = (price * _adj).pct_change(fill_method=None).tail(20)
         res = ret.max()
-        res.index.name = 'date' 
+        res.name = date
         return res
     
     def get_20d_top10_cum_ret(self, date: str):
@@ -233,7 +233,7 @@ class PriceVolumeCorr(BaseFactor):
         _adj = quotes_day.read("adjfactor", start=rollback, stop=date)
         ret = (price * _adj).pct_change(fill_method=None).tail(20)
         res = ret.apply(lambda x: x.nlargest(10).sum(), axis=0)
-        res.name = 'date' 
+        res.name = date
         return res
 
     def get_20d_max_truerange(self, date: str):
@@ -244,19 +244,19 @@ class PriceVolumeCorr(BaseFactor):
         low = (quotes_day.read("low", start=rollback, stop=date) * _adj)
         res = np.maximum.reduce([(high - low)/prev_close, abs(high - prev_close)/prev_close,  abs(prev_close - low)/prev_close]) # 每行最大值
         res = pd.DataFrame(res, index=high.index, columns=high.columns).tail(20).max()
-        res.name = 'date' 
+        res.name = date
         return res
 
-    def get_industry_co_20d_maxret_citics(self, date: str) -> pd.Series:
+    def get_industry_co_20d_maxret(self, date: str) -> pd.Series:
         rollback = quotes_day.get_trading_days_rollback(date, 20)
         price = quotes_day.read("close", start=rollback, stop=date)
         _adj = quotes_day.read("adjfactor", start=rollback, stop=date)
         ret = (price * _adj).pct_change(fill_method=None).tail(20)
-        max_ret = ret.idxmax()
+        max_ret = ret.dropna(axis=1, how='all').idxmax()
 
         ind = industry_info.read(start=date, stop=date)['first_industry_name'].reset_index(level='date', drop=True)
         ind_columns = ind.unique()
-        ind_ret = barra_returns.read(start=rollback, stop=date).tail(20)
+        ind_ret = industry_returns.read(start=rollback, stop=date).tail(20)
         ind_ret = ind_ret[ind_columns]
 
         common_idx = ind.index.intersection(max_ret.index)
@@ -290,7 +290,7 @@ class PriceVolumeCorr(BaseFactor):
 
         ind = industry_info.read(start=date, stop=date)['first_industry_name'].reset_index(level='date', drop=True)
         ind_columns = ind.unique()
-        ind_ret = barra_returns.read(start=rollback, stop=date).tail(20)
+        ind_ret = industry_returns.read(start=rollback, stop=date).tail(20)
         ind_ret = ind_ret[ind_columns]
 
         common_idx = ind.index.intersection(max_ret.index)
@@ -315,11 +315,11 @@ class PriceVolumeCorr(BaseFactor):
         low = quotes_day.read("low", start=rollback, stop=date) * _adj
         tr = np.maximum.reduce([(high - low)/prev_close, abs(high - prev_close)/prev_close,  abs(prev_close - low)/prev_close]) # 每行最大值
         tr = pd.DataFrame(tr, index=high.index, columns=high.columns).tail(20)
-        max_tr = tr.idxmax()
+        max_tr = tr.dropna(axis=1, how='all').idxmax()
 
         ind = industry_info.read(start=date, stop=date)['first_industry_name'].reset_index(level='date', drop=True)
         ind_columns = ind.unique()
-        ind_ret = barra_returns.read(start=rollback, stop=date).tail(20)
+        ind_ret = industry_returns.read(start=rollback, stop=date).tail(20)
         ind_ret = ind_ret[ind_columns]
 
         common_idx = ind.index.intersection(max_tr.index)
@@ -353,7 +353,7 @@ class PriceVolumeCorr(BaseFactor):
 
         ind = industry_info.read(start=date, stop=date)['first_industry_name'].reset_index(level='date', drop=True)
         ind_columns = ind.unique()
-        ind_ret = barra_returns.read(start=rollback, stop=date).tail(20)
+        ind_ret = industry_returns.read(start=rollback, stop=date).tail(20)
         ind_ret = ind_ret[ind_columns]
 
         # ind = barra.read(start = date, stop = date)[ind_columns].idxmax(axis=1).reset_index(level='date', drop=True)
@@ -383,7 +383,7 @@ class PriceVolumeCorr(BaseFactor):
 
         ind = industry_info.read(start=date, stop=date)['first_industry_name'].reset_index(level='date', drop=True)
         ind_columns = ind.unique()
-        ind_ret = barra_returns.read(start=rollback, stop=date).tail(20)
+        ind_ret = industry_returns.read(start=rollback, stop=date).tail(20)
         ind_ret = ind_ret[ind_columns]
 
         common_idx = ind.index.intersection(max_price_volume.index)
@@ -402,7 +402,7 @@ class PriceVolumeCorr(BaseFactor):
         res.name = date
         return res
 
-    def get_industry_co_cum_bottom15_pricevolume_weighted(self, date: str) -> pd.Series:
+    def get_industry_co_20d_bottom15_cum_pricevolume_weighted(self, date: str) -> pd.Series:
         rollback = quotes_day.get_trading_days_rollback(date, 20)
         price = quotes_day.read("close", start=rollback, stop=date)
         _adj = quotes_day.read("adjfactor", start=rollback, stop=date)
@@ -412,7 +412,7 @@ class PriceVolumeCorr(BaseFactor):
 
         ind = industry_info.read(start=date, stop=date)['first_industry_name'].reset_index(level='date', drop=True)
         ind_columns = ind.unique()
-        ind_ret = barra_returns.read(start=rollback, stop=date).tail(20)
+        ind_ret = industry_returns.read(start=rollback, stop=date).tail(20)
         ind_ret = ind_ret[ind_columns]
 
         common_idx = ind.index.intersection(smallest_price_volume.index)
@@ -433,9 +433,9 @@ class PriceVolumeCorr(BaseFactor):
         return res
 
 
-    def get_compound_industry_co_reverse_momemtum(self, date: str, universe: list) -> pd.Series:
-        vicm = self.read('industry_co_20d_top5_cum_pricevolume_weighted', start=date, stop=date)
-        vicr = self.read('industry_co_cum_bottom15_pricevolume_weighted',start=date, stop=date)
+    def get_compound_industry_co_reverse_momemtum(self, date: str) -> pd.Series:
+        vicm = self.read('industry_co_20d_top5_cum_pricevolume_weighted', start=date, stop=date).squeeze()
+        vicr = self.read('industry_co_20d_bottom15_cum_pricevolume_weighted',start=date, stop=date).squeeze()
         res = vicm - vicr
         res.index.name = 'order_book_id' 
         res.name = date
