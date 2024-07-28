@@ -1,11 +1,9 @@
 import quool
 import numpy as np
 import pandas as pd
-from scipy.stats import boxcox
-from sklearn.preprocessing import PowerTransformer
 import statsmodels.api as sm
-from sklearn.linear_model import LinearRegression
-
+import matplotlib.pyplot as plt
+import seaborn as sns
 
 def wscore(df: pd.DataFrame, date: pd.Timestamp):
     weight = index_weights.read('000985.XSHG',start=date, stop=date)
@@ -13,9 +11,12 @@ def wscore(df: pd.DataFrame, date: pd.Timestamp):
             ).div(df.std(axis=1), axis=0)
 
 def zscore(df: pd.DataFrame):
-    return df.sub(df.mean(axis=1), axis=0
+    if isinstance(df.index, pd.MultiIndex):
+        return df.groupby(level='date').transform(lambda x: (x - x.mean()) / x.std())
+    else:
+        return df.sub(df.mean(axis=1), axis=0
         ).div(df.std(axis=1), axis=0)
-
+    
 def minmax(df: pd.DataFrame):
     return df.sub(df.min(axis=1), axis=0).div(
         df.max(axis=1) - df.min(axis=1), axis=0)
@@ -76,31 +77,6 @@ def log(df: pd.DataFrame):
 def sqrt(df: pd.DataFrame):
     return np.sqrt(df.sub(df.min(axis=1), axis=0))
 
-def box_cox(df: pd.DataFrame): 
-    def safe_boxcox(row):
-        non_nan_values = row.dropna()
-        if non_nan_values.empty:
-            return pd.Series([np.nan] * len(row), index=row.index)
-        else:
-            transformed_values = boxcox((non_nan_values - non_nan_values.min() + 1e-6))[0]
-            res = pd.Series([np.nan] * len(row), index=row.index)
-            res.loc[non_nan_values.index] = transformed_values
-            return res
-
-    df_transformed = df.apply(safe_boxcox, axis=1, result_type='expand')
-    return df_transformed
-
-def yeo_johnson(df: pd.DataFrame): 
-    def transform_row(row):
-        row_reshaped = row.values.reshape(-1, 1)
-        transformed_row = pt.fit_transform(row_reshaped)
-        return transformed_row.flatten()
-
-    pt = PowerTransformer(method='yeo-johnson', standardize=False)
-    df_transformed = df.apply(transform_row, axis=1, result_type='expand')
-    df_transformed.columns = df.columns
-    return df_transformed
-
 def tsmean(df: pd.DataFrame, n: int = 20):
     return df.rolling(n).mean()
 
@@ -139,6 +115,89 @@ def neutralization(
             results = pd.concat([results, res.to_frame().T]) if not results.empty else res.to_frame().T
     
     return results
+
+def perform_corr(
+    df: str | pd.DataFrame,
+    Orthogonalization: bool = False, 
+    heatmap_image: str | bool = None, 
+    tscorr_image: str | bool = None, 
+):
+    correlations = {}  
+    for date, group in df.groupby('date'):
+        corr_matrix = group.corr()
+        correlations[date] = corr_matrix
+    correlation_matrix = sum(correlations.values())/ len(correlations)
+
+    if heatmap_image is not None and heatmap_image != False:
+        fig, ax = plt.subplots(figsize=(12, 8))
+        sns.heatmap(correlation_matrix, annot=True, fmt=".2f", cmap='RdBu', center=0,
+                    vmin=-1, vmax=1, cbar=True, ax=ax)
+        ax.set_title('Heatmap for Correlation')
+        if not isinstance(heatmap_image, bool):
+            plt.savefig(heatmap_image)
+            plt.close(fig)
+        else:
+            fig.show()
+
+    if tscorr_image is not None and tscorr_image!=False:
+        correlation_ts = pd.DataFrame()
+
+        # 遍历字典，将每个日期的相关性矩阵加入DataFrame
+        for date, matrix in correlations.items():
+            flat_matrix = matrix.unstack().rename_axis(['Feature1', 'Feature2']).reset_index()
+            flat_matrix['Correlation'] = flat_matrix[0]
+            flat_matrix['Date'] = pd.to_datetime(date)  # Ensure the date is in datetime format for plotting
+            correlation_ts = pd.concat([correlation_ts, flat_matrix[['Date', 'Feature1', 'Feature2', 'Correlation']]], axis=0)
+
+        correlation_ts = correlation_ts[correlation_ts['Feature1'] != correlation_ts['Feature2']]
+        correlation_ts['sorted_features'] = correlation_ts.apply(lambda x: tuple(sorted([x['Feature1'], x['Feature2']])), axis=1)
+        correlation_ts = correlation_ts.drop_duplicates(subset=['Date', 'sorted_features'])
+        correlation_ts.set_index(['Date', 'sorted_features'], inplace=True)
+        correlation_ts = correlation_ts['Correlation'].unstack()
+
+        num_pairs = len(correlation_ts.columns)
+        num_cols = 3  # 每行的子图数量
+        num_rows = (num_pairs + num_cols - 1) // num_cols  # 总行数
+
+        # 创建子图
+        fig, axes = plt.subplots(num_rows, num_cols, figsize=(15, num_rows * 5))
+        axes = axes.flatten()  # 转换为一维数组便于迭代
+
+        # 绘制每个子图
+        for ax, ((feature1, feature2), series) in zip(axes, correlation_ts.items()):
+            ax.plot(series.index, series, marker='', linestyle='-')
+            ax.set_title(f'{feature1} and {feature2}')
+            ax.grid(True)
+            for label in ax.get_xticklabels():
+                label.set_rotation(45)  # 将X轴日期标签旋转45度
+            ax.tick_params(axis='x', which='major', labelsize=10)  # 调整标签大小
+
+        # 隐藏多余的子图
+        for i in range(num_pairs, len(axes)):
+            axes[i].set_visible(False)
+
+        fig.supxlabel('Date', fontsize=12)  # 设置整个图表的X轴标签
+        fig.supylabel('Correlation', fontsize=12)  # 设置整个图表的Y轴标签
+        fig.tight_layout()
+        if not isinstance(tscorr_image, bool):
+            plt.savefig(tscorr_image)
+            plt.close(fig)
+        else:
+            fig.show()
+
+    res = None
+    if Orthogonalization:
+        def orthogonalize(group):
+            X = group.values
+            C = np.cov(X.T)
+            D, U = np.linalg.eigh(C)
+            D_sqrt_inv = np.diag(1 / np.sqrt(D))
+            S = U @ D_sqrt_inv @ U.T
+            F_hat = X @ S
+            return pd.DataFrame(F_hat, index=group.index, columns=group.columns)
+        res = df.groupby('date', as_index=False).apply(orthogonalize).reset_index(level=0, drop=True).sort_index()
+    
+    return correlation_matrix, res
 class BaseFactor(quool.Factor):
 
     def get_future(
