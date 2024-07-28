@@ -142,11 +142,10 @@ def perform_corr(
     if tscorr_image is not None and tscorr_image!=False:
         correlation_ts = pd.DataFrame()
 
-        # 遍历字典，将每个日期的相关性矩阵加入DataFrame
         for date, matrix in correlations.items():
             flat_matrix = matrix.unstack().rename_axis(['Feature1', 'Feature2']).reset_index()
             flat_matrix['Correlation'] = flat_matrix[0]
-            flat_matrix['Date'] = pd.to_datetime(date)  # Ensure the date is in datetime format for plotting
+            flat_matrix['Date'] = pd.to_datetime(date)
             correlation_ts = pd.concat([correlation_ts, flat_matrix[['Date', 'Feature1', 'Feature2', 'Correlation']]], axis=0)
 
         correlation_ts = correlation_ts[correlation_ts['Feature1'] != correlation_ts['Feature2']]
@@ -156,28 +155,24 @@ def perform_corr(
         correlation_ts = correlation_ts['Correlation'].unstack()
 
         num_pairs = len(correlation_ts.columns)
-        num_cols = 3  # 每行的子图数量
-        num_rows = (num_pairs + num_cols - 1) // num_cols  # 总行数
+        num_cols = 3  
+        num_rows = (num_pairs + num_cols - 1) // num_cols  
 
-        # 创建子图
         fig, axes = plt.subplots(num_rows, num_cols, figsize=(15, num_rows * 5))
-        axes = axes.flatten()  # 转换为一维数组便于迭代
-
-        # 绘制每个子图
+        axes = axes.flatten()  
         for ax, ((feature1, feature2), series) in zip(axes, correlation_ts.items()):
             ax.plot(series.index, series, marker='', linestyle='-')
             ax.set_title(f'{feature1} and {feature2}')
             ax.grid(True)
             for label in ax.get_xticklabels():
-                label.set_rotation(45)  # 将X轴日期标签旋转45度
-            ax.tick_params(axis='x', which='major', labelsize=10)  # 调整标签大小
+                label.set_rotation(45)  
+            ax.tick_params(axis='x', which='major', labelsize=10)  
 
         # 隐藏多余的子图
         for i in range(num_pairs, len(axes)):
             axes[i].set_visible(False)
-
-        fig.supxlabel('Date', fontsize=12)  # 设置整个图表的X轴标签
-        fig.supylabel('Correlation', fontsize=12)  # 设置整个图表的Y轴标签
+        fig.supxlabel('Date', fontsize=12) 
+        fig.supylabel('Correlation', fontsize=12)
         fig.tight_layout()
         if not isinstance(tscorr_image, bool):
             plt.savefig(tscorr_image)
@@ -198,6 +193,7 @@ def perform_corr(
         res = df.groupby('date', as_index=False).apply(orthogonalize).reset_index(level=0, drop=True).sort_index()
     
     return correlation_matrix, res
+
 class BaseFactor(quool.Factor):
 
     def get_future(
