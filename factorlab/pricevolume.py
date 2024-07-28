@@ -4,7 +4,9 @@ import statsmodels.api as sm
 from .base import (
     quotes_day, quotes_min, industry_info, 
     barra_rq, barra_returns_rq, industry_returns,
-    wscore, neutralization, BaseFactor
+    index_quotes_day, 
+    wscore, zscore, neutralization, 
+    BaseFactor
 )
 
 
@@ -438,5 +440,146 @@ class PriceVolumeCorr(BaseFactor):
         vicr = self.read('industry_co_20d_bottom15_cum_pricevolume_weighted',start=date, stop=date).squeeze()
         res = vicm - vicr
         res.index.name = 'order_book_id' 
+        res.name = date
+        return res
+    
+
+    def get_str(self, date: str) -> pd.Series:
+        rollback = quotes_day.get_trading_days_rollback(date, 1)
+        price = quotes_day.read("close", start=rollback, stop=date)
+        _adj = quotes_day.read("adjfactor", start=rollback, stop=date)
+        ret = (price * _adj).pct_change(fill_method=None).tail(1).squeeze()
+        res = (ret - ret.mean()).abs() / (ret.abs() - np.abs(ret.mean()) + 0.1) 
+        res.name = date
+        return res
+    
+    def get_str_weighted(self, date: str) -> pd.Series:
+        rollback = quotes_day.get_trading_days_rollback(date, 20)
+        str_20 = self.read("str", start=rollback, stop=date)
+        str_rank = str_20.rank(axis=1, method='min', ascending=False)
+        w =  ((0.7**str_rank)/((0.7**str_rank).sum()/21)).tail(20)
+        w = w.replace([np.inf, -np.inf], np.nan).fillna(0)
+
+        price = quotes_day.read("close", start=rollback, stop=date)
+        _adj = quotes_day.read("adjfactor", start=rollback, stop=date)
+        ret = (price * _adj).pct_change(fill_method=None).tail(20).fillna(0)
+        
+        res = pd.Series(index=ret.columns)
+        for col in ret.columns:
+            cov_value = w[col].cov(ret[col])
+            res[col] = cov_value
+        res.name = date
+        return res
+    
+    def get_stv(self, date: str) -> pd.Series:
+        volume = quotes_day.read("volume", start=date, stop=date)
+        circulation_a = quotes_day.read("circulation_a", start=date, stop=date)
+        turnover = (volume/circulation_a).squeeze()
+        res = (turnover - turnover.mean()).abs() / (turnover.abs() - np.abs(turnover.mean()) + 0.1) 
+        res.name = date
+        return res
+
+    def get_stv_weighted_v1(self, date: str) -> pd.Series:
+        rollback = quotes_day.get_trading_days_rollback(date, 20)
+        stv = self.read("stv", start=rollback, stop=date)
+        rank = stv.rank(axis=1, method='min', ascending=False)
+        w =  ((0.7**rank)/((0.7**rank).sum()/21)).tail(20)
+        w = w.replace([np.inf, -np.inf], np.nan).fillna(0)
+
+        price = quotes_day.read("close", start=rollback, stop=date)
+        _adj = quotes_day.read("adjfactor", start=rollback, stop=date)
+        ret = (price * _adj).pct_change(fill_method=None).tail(20).fillna(0)
+        
+        res = pd.Series(index=ret.columns)
+        for col in ret.columns:
+            cov_value = w[col].cov(ret[col])
+            res[col] = cov_value
+        res.name = date
+        return res
+    
+    def get_stv_weighted_v2(self, date: str) -> pd.Series:
+        rollback = quotes_day.get_trading_days_rollback(date, 20)
+        stv = self.read("stv", start=rollback, stop=date)
+        rank = stv.rank(axis=1, method='min', ascending=False)
+        w =  ((0.7**rank)/((0.7**rank).sum()/21)).tail(20)
+        w = w.replace([np.inf, -np.inf], np.nan).fillna(0)
+
+        stv = stv.dropna(how='all',axis=1).fillna(0)
+        res = pd.Series(index=stv.columns)
+        for col in stv.columns:
+            cov_value = w[col].cov(stv[col])
+            res[col] = cov_value
+        res.name = date
+        return res
+    
+    def get_abnretd(self, date: str) -> pd.Series:
+        rollback = quotes_day.get_trading_days_rollback(date, 20)
+        price = quotes_day.read("close", start=rollback, stop=date)
+        _adj = quotes_day.read("adjfactor", start=rollback, stop=date)
+        ret = (price * _adj).pct_change(fill_method=None)
+        market_ret = index_quotes_day.read('close', code='000985.XSHG', start=rollback, stop=date).pct_change(fill_method=None).squeeze()
+        res = ret.sub(market_ret, axis=0).max().abs()
+        res.name = date
+        return res
+    
+    def get_abneretm(self, date: str) -> pd.Series:
+        rollback = quotes_day.get_trading_days_rollback(date, 20)
+        price = quotes_day.read("close", start=rollback, stop=date)
+        _adj = quotes_day.read("adjfactor", start=rollback, stop=date)
+        ret = (price * _adj).pct_change(periods=20, fill_method=None).iloc[-1]
+        market_ret = index_quotes_day.read('close', code='000985.XSHG', start=rollback, stop=date).pct_change(periods=20, fill_method=None).iloc[-1]
+        res = (ret- market_ret.values).abs()
+        res.name = date
+        return res
+
+    def get_abnvold(self, date: str) -> pd.Series:
+        rollback = quotes_day.get_trading_days_rollback(date, 252)
+        volume = quotes_day.read("volume", start=rollback, stop=date).tail(252)
+        res = (volume.tail(21) / volume.mean(axis=0)).max().abs()
+        res.name = date
+        return res
+
+    def get_abnvolm(self, date: str) -> pd.Series:
+        rollback = quotes_day.get_trading_days_rollback(date, 252)
+        volume = quotes_day.read("volume", start=rollback, stop=date).tail(252)
+        res = (volume.tail(21).sum() / volume.mean(axis=0)).abs()
+        res.name = date
+        return res
+
+    def get_attn_v1(self, date: str) -> pd.Series:
+        rollback = quotes_day.get_trading_days_rollback(date, 20)
+        volume = quotes_day.read("volume", start=rollback, stop=date)
+        res = volume.ewm(halflife=5, adjust=False).mean().sum()
+        res.name = date
+        return res
+    
+    def get_attn_v2(self, date: str) -> pd.Series:
+        rollback = quotes_day.get_trading_days_rollback(date, 20)
+        volume = quotes_day.read("volume", start=rollback, stop=date).tail(20)
+        n = 20
+        weights = np.array([2 ** -((i - 1) / (n - 1)) for i in range(1, n + 1)])  
+        res = volume.mul(weights[::-1],axis=0).sum()
+        res.name = date
+        return res
+
+    def get_er(self, date: str) -> pd.Series:
+        rollback = quotes_day.get_trading_days_rollback(date, 252)
+        price = quotes_day.read("close", start=rollback, stop=date)
+        _adj = quotes_day.read("adjfactor", start=rollback, stop=date)
+        ret = (price * _adj).pct_change(periods=21, fill_method=None)
+        res = ret.iloc[-1] / ret.mean(axis=0)
+        res.name = date
+        return res
+
+    def get_nearness_high_ly(self, date: str) -> pd.Series:
+        rollback = quotes_day.get_trading_days_rollback(date, 252)
+        high = quotes_day.read("high", start=rollback, stop=date).tail(252)
+        res = high.tail(21).max()/high.max()
+        res.name = date
+        return res
+
+    def get_nearness_high_historical(self, date: str) -> pd.Series:
+        high = quotes_day.read("high", stop=date)
+        res = high.tail(21).max()/high.max()
         res.name = date
         return res

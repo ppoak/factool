@@ -62,39 +62,16 @@ class LiquidityFactor(BaseFactor):
         res = nonliquidity.std()/ nonliquidity.mean()
         res.name = date
         return res
-    
-    def get_20d_resid_ill_liquidity(self, date: str | pd.Timestamp) -> pd.Series:
-        rollback = quotes_day.get_trading_days_rollback(date, 21)
-        price = quotes_day.read("close", start=rollback, stop=date)
-        _adj= quotes_day.read("adjfactor", start=rollback, stop=date)
-        ret  = (price * _adj).pct_change(fill_method=None).tail(20)
-        market_ret = index_quotes_day.read('close', code='000985.XSHG', start=rollback, stop=date).pct_change(fill_method=None).tail(20).squeeze()
 
-        X = sm.add_constant(market_ret)
-        y = ret
-        model = sm.OLS(y, X).fit()
-        epsilon = model.resid
-
-        amount = quotes_day.read("amount", start=rollback, stop=date).tail(20)
-        res = (epsilon.abs()/amount).mean()
-        res = res.replace([np.inf, -np.inf], np.nan)
-        res.index.name = 'order_book_id'
-        res.name = date
-        return res
-
-    def get_5minute_resid_ill_liquidity(self, date: str | pd.Timestamp) -> pd.Series:
-        price = quotes_min.read("close", start=date, stop=date + pd.Timedelta(days=1))
-        ret  = price.pct_change(periods=5, fill_method=None).dropna(how='all')
-        market_ret = index_quotes_min.read('close', code='000001.XSHG', start=date, stop=date + pd.Timedelta(days=1)).pct_change(periods=5, fill_method=None).squeeze().dropna(how='all')
-        amount = quotes_min.read('total_turnover',start=date, stop=date + pd.Timedelta(days=1)).rolling(5).sum().dropna(how='all')
-
-        X = sm.add_constant(market_ret)
-        y = ret
-        model = sm.OLS(y, X).fit()
-        epsilon = model.resid
-
-        res = (epsilon.abs()/amount).mean()
-        res = res.replace([np.inf, -np.inf], np.nan)
-        res.index.name = 'order_book_id'
+    def get_hli(self, date: str) -> pd.Series:
+        rollback = quotes_day.get_trading_days_rollback(date, 1)
+        high = quotes_day.read("high", start=rollback, stop=date)
+        low = quotes_day.read("low", start=rollback, stop=date)
+        p1 = (np.log(high/low).sum()**2) / 2
+        p2 = np.log(high.max()/low.min())**2
+        p3 = (np.sqrt(2*p1)-np.sqrt(p1))/(3-2*np.sqrt(2)) - np.sqrt(p2/(3-2*np.sqrt(2)))
+        hl = 2*(np.exp(p3) -1)/ (1 + np.exp(p3))
+        amount = quotes_day.read("amount", start=date, stop=date).squeeze()
+        res = hl/amount
         res.name = date
         return res

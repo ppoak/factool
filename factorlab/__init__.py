@@ -6,8 +6,8 @@ from .base import (
     barra_rq, barra_returns_rq, industry_returns,
     wscore, zscore, minmax,
     madoutlier, stdoutlier, iqroutlier,
-    fillna, log, tsmean, sqrt, box_cox, 
-    yeo_johnson, neutralization
+    fillna, log, tsmean, sqrt, neutralization,
+    perform_corr,
 )
 
 from .marketsize import MarketSizeFactor
