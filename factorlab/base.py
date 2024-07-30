@@ -83,39 +83,26 @@ def neutralization(
     industry: bool = False, 
     market: bool = False
 ): 
+    res = df.stack().to_frame(name='factor')
+
+    if industry:
+        ind = industry_info.read('first_industry_name', start=df.index[0], stop=df.index[-1])
+        ind = pd.get_dummies(ind.stack(), prefix='', prefix_sep='').astype(int)
+        res = res.join(ind, how='outer')
+        
+    if market:
+        marketcap = barra.read("log_marketcap",  start=df.index[0], stop=df.index[-1]).stack().to_frame(name='marketcap')
+        res = res.join(marketcap, how='outer')
 
     def _neutralization(group):
-        X = pd.DataFrame()
-        factor = group.squeeze()
-        factor.name = 'factor'
-        date = group.name
-        
-        if industry:
-            ind = industry_info.read('first_industry_name', start=date, stop=date).loc[date]
-            ind = pd.get_dummies(ind, prefix='', prefix_sep='')
-            ind = ind.select_dtypes(include=[bool]).astype(int) 
-            X = X.join(ind, how='outer') if not X.empty else ind
-        
-        if market:
-            # shares = quotes_day.read("circulation_a", start=date, stop=date)
-            # price = quotes_day.read("close", start=date, stop=date)
-            # adjfactor = quotes_day.read("adjfactor", start=date, stop=date)
-            # marketcap = np.log(shares * price * adjfactor).loc[date]
-            marketcap = barra.read("log_marketcap", start=date, stop=date).squeeze()
-            marketcap.name = 'marketcap'
-            X = X.join(marketcap, how='outer') if not X.empty else pd.DataFrame(marketcap)
-    
-        if not X.empty:
-            df_combined = pd.concat([X, factor], axis=1).dropna()
-            X = sm.add_constant(df_combined.drop('factor', axis=1))
-            y = df_combined['factor']
-            model = sm.OLS(y, X).fit()
-            res = model.resid
-            res.name = date
-            return res.to_frame().T
-    
-    res = df.groupby(level='date').apply(_neutralization).reset_index(level=1, drop=True)
-    return res
+        X = sm.add_constant(group.drop('factor', axis=1))
+        y = group['factor']
+        model = sm.OLS(y, X).fit()
+        return model.resid.droplevel('date')
+
+    res = res.dropna().groupby(level='date').apply(_neutralization)
+    return res.unstack()
+
 
 class BaseFactor(quool.Factor):
 
