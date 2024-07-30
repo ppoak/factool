@@ -583,3 +583,15 @@ class PriceVolumeCorr(BaseFactor):
         res = high.tail(21).max()/high.max()
         res.name = date
         return res
+
+    def get_compound_abnormal(self, date: str) -> pd.Series:
+        abnvold = self.read('abnvold', start=date, stop=date)
+        abnretd = self.read('abnretd', start=date, stop=date)
+        str = self.read('str', start=date, stop=date)
+        attn_v2 = self.read('attn_v2', start=date, stop=date)
+        stv_weighted_v2 = self.read('stv_weighted_v2', start=date, stop=date)
+        nearness_high_historical = self.read('nearness_high_historical', start=date, stop=date)
+        res = zscore(abnvold) + zscore(abnretd) + zscore(str) + zscore(nearness_high_historical) + zscore(stv_weighted_v2) + zscore(attn_v2)
+        res.index.name = 'order_book_id' 
+        res.name = date
+        return res

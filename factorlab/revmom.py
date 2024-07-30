@@ -2,7 +2,8 @@ import numpy as np
 import pandas as pd
 import statsmodels.api as sm
 from .base import (
-    quotes_day, quotes_min, industry_info, BaseFactor
+    quotes_day, quotes_min, industry_info, 
+    zscore, BaseFactor
 )
 
     
@@ -108,3 +109,37 @@ class MomentumFactor(BaseFactor):
         res = np.sign(ret_adj.head(11).sum() / 12) * ret_adj.loc[date]/std_adj.loc[date]
         res.name = date
         return res
+
+    def get_multiterm_ewm_llt_resid(self, date: str): 
+        rollback = quotes_day.get_trading_days_rollback(date, 5)
+        price = quotes_day.read("close", start=rollback, stop=date)
+        _adj= quotes_day.read("adjfactor", start=rollback, stop=date)
+        price_adj = (price * _adj).unstack().to_frame(name='price_adj')
+        
+        LLT = llt.read(start=rollback, stop=date - pd.Timedelta(days=1))
+        df = pd.merge(LLT, price_adj, left_index=True, right_index=True)
+        df = df.div(df['price_adj'],axis=0)
+
+        # future = self.get_future(start=rollback, stop=date, period=1).unstack().to_frame(name ='future')
+        vwap = self.read("volume_weighted_price", start=rollback, stop=date)
+        ret = (vwap * _adj).pct_change(fill_method=None).shift(-1).unstack().to_frame(name ='ret')
+        ret = ret.replace([np.inf, -np.inf], np.nan)
+        df = pd.merge(df, ret, left_index=True, right_index=True)
+        
+        def perform_regression(group):
+            group = group.dropna()
+            X = group[['LLT_3', 'LLT_5', 'LLT_20', 'LLT_60', 'LLT_125', 'LLT_250']].droplevel(self._date_level)
+            y = group['ret'].droplevel(self._date_level)
+            X = sm.add_constant(X)
+            model = sm.OLS(y, X).fit()
+            return model.resid
+        
+        res = df.groupby(level='date').apply(perform_regression)
+        if isinstance(res.index, pd.MultiIndex):
+            res = pd.Series(res.unstack().mean())
+        else:
+            res = pd.Series(res.mean())
+            
+        res.name = date
+        return res
+    

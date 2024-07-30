@@ -83,11 +83,12 @@ def neutralization(
     industry: bool = False, 
     market: bool = False
 ): 
-    results = pd.DataFrame()
-    for date, factor in df.groupby(df.index):
+
+    def _neutralization(group):
         X = pd.DataFrame()
-        factor = factor.squeeze()
+        factor = group.squeeze()
         factor.name = 'factor'
+        date = group.name
         
         if industry:
             ind = industry_info.read('first_industry_name', start=date, stop=date).loc[date]
@@ -96,24 +97,25 @@ def neutralization(
             X = X.join(ind, how='outer') if not X.empty else ind
         
         if market:
-            shares = quotes_day.read("circulation_a", start=date, stop=date)
-            price = quotes_day.read("close", start=date, stop=date)
-            adjfactor = quotes_day.read("adjfactor", start=date, stop=date)
-            marketcap = np.log(shares * price * adjfactor).loc[date]
+            # shares = quotes_day.read("circulation_a", start=date, stop=date)
+            # price = quotes_day.read("close", start=date, stop=date)
+            # adjfactor = quotes_day.read("adjfactor", start=date, stop=date)
+            # marketcap = np.log(shares * price * adjfactor).loc[date]
+            marketcap = barra.read("log_marketcap", start=date, stop=date).squeeze()
             marketcap.name = 'marketcap'
             X = X.join(marketcap, how='outer') if not X.empty else pd.DataFrame(marketcap)
-       
+    
         if not X.empty:
-            df = pd.concat([X,factor],axis=1).dropna()
-            X = sm.add_constant(df.drop('factor', axis=1))
-            y = df['factor']
+            df_combined = pd.concat([X, factor], axis=1).dropna()
+            X = sm.add_constant(df_combined.drop('factor', axis=1))
+            y = df_combined['factor']
             model = sm.OLS(y, X).fit()
             res = model.resid
             res.name = date
-            results = pd.concat([results, res.to_frame().T]) if not results.empty else res.to_frame().T
+            return res.to_frame().T
     
-    return results
-
+    res = df.groupby(level='date').apply(_neutralization).reset_index(level=1, drop=True)
+    return res
 
 class BaseFactor(quool.Factor):
 
@@ -155,3 +157,4 @@ industry_info = quool.Factor("./data/industry-info", code_level="order_book_id",
 barra_rq = quool.Factor("./data/barra-factor-rq", code_level="order_book_id", date_level="date")
 barra_returns_rq = quool.Factor("./data/barra-returns-rq", code_level="order_book_id", date_level="date")
 industry_returns = quool.Factor("./data/industry-returns-citics-rq", code_level="order_book_id", date_level="date")
+barra = quool.Factor("./data/barra-factor", code_level="order_book_id", date_level="date")
