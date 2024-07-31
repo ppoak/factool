@@ -443,13 +443,12 @@ class PriceVolumeCorr(BaseFactor):
         res.name = date
         return res
     
-
     def get_str(self, date: str) -> pd.Series:
         rollback = quotes_day.get_trading_days_rollback(date, 1)
         price = quotes_day.read("close", start=rollback, stop=date)
         _adj = quotes_day.read("adjfactor", start=rollback, stop=date)
         ret = (price * _adj).pct_change(fill_method=None).tail(1).squeeze()
-        res = (ret - ret.mean()).abs() / (ret.abs() - np.abs(ret.mean()) + 0.1) 
+        res = (ret - ret.mean()).abs() / (ret.abs() + np.abs(ret.mean()) + 0.1) 
         res.name = date
         return res
     
@@ -471,11 +470,36 @@ class PriceVolumeCorr(BaseFactor):
         res.name = date
         return res
     
+    def get_intraday_ret_str(self, date: str) -> pd.Series:
+        rollback = quotes_day.get_trading_days_rollback(date, 1)
+        price = quotes_min.read("close", start=rollback, stop=date + pd.Timedelta(days=1))
+        ret = (1 + price.pct_change(fill_method=None)).prod()
+        res = (ret - ret.mean()).abs() / (ret.abs() + np.abs(ret.mean()) + 0.1) 
+        res.name = date
+        return res
+    
+    def get_minute_str(self, date: str) -> pd.Series:
+        rollback = quotes_day.get_trading_days_rollback(date, 1)
+        price = quotes_min.read("close", start=rollback, stop=date + pd.Timedelta(days=1))
+        ret = price.pct_change(fill_method=None)
+        res = ret.sub(ret.mean(axis=1),axis=0) / (ret.abs().add(np.abs(ret.mean(axis=1)), axis=0) + 0.01)
+        res = res.mean()
+        res.name = date
+        return res
+    
+    def get_5minute_str(self, date: str) -> pd.Series:
+        price = quotes_min.read("close", start=date, stop=date + pd.Timedelta(days=1))
+        ret = price.pct_change(periods=5, fill_method=None)
+        res = ret.sub(ret.mean(axis=1),axis=0) / (ret.abs().add(np.abs(ret.mean(axis=1)), axis=0) + 0.01)
+        res = res.mean()
+        res.name = date
+        return res
+    
     def get_stv(self, date: str) -> pd.Series:
         volume = quotes_day.read("volume", start=date, stop=date)
         circulation_a = quotes_day.read("circulation_a", start=date, stop=date)
         turnover = (volume/circulation_a).squeeze()
-        res = (turnover - turnover.mean()).abs() / (turnover.abs() - np.abs(turnover.mean()) + 0.1) 
+        res = (turnover - turnover.mean()).abs() / (turnover.abs() + np.abs(turnover.mean()) + 0.1) 
         res.name = date
         return res
 
@@ -545,15 +569,8 @@ class PriceVolumeCorr(BaseFactor):
         res = (volume.tail(21).sum() / volume.mean(axis=0)).abs()
         res.name = date
         return res
-
-    def get_attn_v1(self, date: str) -> pd.Series:
-        rollback = quotes_day.get_trading_days_rollback(date, 20)
-        volume = quotes_day.read("volume", start=rollback, stop=date)
-        res = volume.ewm(halflife=5, adjust=False).mean().sum()
-        res.name = date
-        return res
     
-    def get_attn_v2(self, date: str) -> pd.Series:
+    def get_attn(self, date: str) -> pd.Series:
         rollback = quotes_day.get_trading_days_rollback(date, 20)
         volume = quotes_day.read("volume", start=rollback, stop=date).tail(20)
         n = 20
@@ -579,19 +596,9 @@ class PriceVolumeCorr(BaseFactor):
         return res
 
     def get_nearness_high_historical(self, date: str) -> pd.Series:
-        high = quotes_day.read("high", stop=date)
-        res = high.tail(21).max()/high.max()
-        res.name = date
-        return res
+        universe = self.setup_universe(date)
 
-    def get_compound_abnormal(self, date: str) -> pd.Series:
-        abnvold = self.read('abnvold', start=date, stop=date)
-        abnretd = self.read('abnretd', start=date, stop=date)
-        str = self.read('str', start=date, stop=date)
-        attn_v2 = self.read('attn_v2', start=date, stop=date)
-        stv_weighted_v2 = self.read('stv_weighted_v2', start=date, stop=date)
-        nearness_high_historical = self.read('nearness_high_historical', start=date, stop=date)
-        res = zscore(abnvold) + zscore(abnretd) + zscore(str) + zscore(nearness_high_historical) + zscore(stv_weighted_v2) + zscore(attn_v2)
-        res.index.name = 'order_book_id' 
+        high = quotes_day.read( "high", code=universe, stop=date)
+        res = high.tail(21).max()/high.max()
         res.name = date
         return res

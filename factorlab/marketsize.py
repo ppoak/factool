@@ -9,9 +9,11 @@ from .base import (
 class MarketSizeFactor(BaseFactor):
 
     def get_log_marketcap(self, date: str | pd.Timestamp) -> pd.Series:
-        shares = quotes_day.read("circulation_a", start=date, stop=date)
-        price = quotes_day.read("close", start=date, stop=date)
-        adjfactor = quotes_day.read("adjfactor", start=date, stop=date)
+        universe = self.setup_universe(date, benchmark="000985.XSHG")
+        
+        shares = quotes_day.read("circulation_a", code=universe, start=date, stop=date)
+        price = quotes_day.read("close", code=universe, start=date, stop=date)
+        adjfactor = quotes_day.read("adjfactor", code=universe, start=date, stop=date)
         res = np.log(shares * price * adjfactor).loc[date]
         return res
 

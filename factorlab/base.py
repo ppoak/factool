@@ -105,7 +105,14 @@ def neutralization(
 
 
 class BaseFactor(quool.Factor):
-
+    def setup_universe(self, date: pd.Timestamp, benchmark: str = '000985.XSHG')-> list:
+        universe = index_weights.read(benchmark ,start=date, stop=date).columns
+        is_st_suspended= quotes_day.read("st, suspended", start=date, stop=date)
+        realizable = is_st_suspended[
+            (is_st_suspended['st'] == False) & (is_st_suspended['suspended'] == False)
+            ].index.get_level_values(self._code_level)
+        return universe.intersection(realizable).to_list()
+    
     def get_future(
         self, 
         ptype: str = "volume_weighted_price",

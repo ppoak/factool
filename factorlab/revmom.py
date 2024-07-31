@@ -80,66 +80,36 @@ class MomentumFactor(BaseFactor):
         res.name = date
         return res
 
-    def get_CMO(self, date: str):
-        rollback = quotes_day.get_trading_days_rollback(date, 20)
-        price = quotes_day.read("close", start=rollback, stop=date)
-        delta = price.diff().tail(20)
-        up = delta.where(delta > 0, 0)
-        down = -delta.where(delta < 0, 0)
-        sum_up = up.sum()
-        sum_down = down.sum()
-        res = 100 * (sum_up - sum_down) / (sum_up + sum_down)
-        res.name = date
-        return res
-    
-    def get_time_series_momentum(self, date: str):
-        def get_ret_month(date: str):
-            rollback = quotes_day.get_trading_days_rollback(date, 21)
-            price = quotes_day.read("close", start=rollback, stop=date)
-            _adj= quotes_day.read("adjfactor", start=rollback, stop=date)
-            res = (price * _adj).pct_change(periods=21, fill_method=None).tail(1)
-            return res
-        dates = [quotes_day.get_trading_days_rollback(date, i) for i in range(0, 232, 21)]
-        ret = pd.concat([get_ret_month(d) for d in dates], axis=0)
-        ret = ret.sort_index()
-
-        ret_adj = ret - ret.ewm(com=2, adjust=False).mean()
-        std_adj = np.sqrt((ret_adj.std(axis=1)**2).ewm(com=2, adjust=False).mean())
-
-        res = np.sign(ret_adj.head(11).sum() / 12) * ret_adj.loc[date]/std_adj.loc[date]
-        res.name = date
-        return res
-
-    def get_multiterm_ewm_llt_resid(self, date: str): 
-        rollback = quotes_day.get_trading_days_rollback(date, 5)
-        price = quotes_day.read("close", start=rollback, stop=date)
-        _adj= quotes_day.read("adjfactor", start=rollback, stop=date)
-        price_adj = (price * _adj).unstack().to_frame(name='price_adj')
+    # def get_multiterm_ewm_llt_resid(self, date: str): 
+    #     rollback = quotes_day.get_trading_days_rollback(date, 5)
+    #     price = quotes_day.read("close", start=rollback, stop=date)
+    #     _adj= quotes_day.read("adjfactor", start=rollback, stop=date)
+    #     price_adj = (price * _adj).unstack().to_frame(name='price_adj')
         
-        LLT = llt.read(start=rollback, stop=date - pd.Timedelta(days=1))
-        df = pd.merge(LLT, price_adj, left_index=True, right_index=True)
-        df = df.div(df['price_adj'],axis=0)
+    #     LLT = llt.read(start=rollback, stop=date - pd.Timedelta(days=1))
+    #     df = pd.merge(LLT, price_adj, left_index=True, right_index=True)
+    #     df = df.div(df['price_adj'],axis=0)
 
-        # future = self.get_future(start=rollback, stop=date, period=1).unstack().to_frame(name ='future')
-        vwap = self.read("volume_weighted_price", start=rollback, stop=date)
-        ret = (vwap * _adj).pct_change(fill_method=None).shift(-1).unstack().to_frame(name ='ret')
-        ret = ret.replace([np.inf, -np.inf], np.nan)
-        df = pd.merge(df, ret, left_index=True, right_index=True)
+    #     # future = self.get_future(start=rollback, stop=date, period=1).unstack().to_frame(name ='future')
+    #     vwap = self.read("volume_weighted_price", start=rollback, stop=date)
+    #     ret = (vwap * _adj).pct_change(fill_method=None).shift(-1).unstack().to_frame(name ='ret')
+    #     ret = ret.replace([np.inf, -np.inf], np.nan)
+    #     df = pd.merge(df, ret, left_index=True, right_index=True)
         
-        def perform_regression(group):
-            group = group.dropna()
-            X = group[['LLT_3', 'LLT_5', 'LLT_20', 'LLT_60', 'LLT_125', 'LLT_250']].droplevel(self._date_level)
-            y = group['ret'].droplevel(self._date_level)
-            X = sm.add_constant(X)
-            model = sm.OLS(y, X).fit()
-            return model.resid
+    #     def perform_regression(group):
+    #         group = group.dropna()
+    #         X = group[['LLT_3', 'LLT_5', 'LLT_20', 'LLT_60', 'LLT_125', 'LLT_250']].droplevel(self._date_level)
+    #         y = group['ret'].droplevel(self._date_level)
+    #         X = sm.add_constant(X)
+    #         model = sm.OLS(y, X).fit()
+    #         return model.resid
         
-        res = df.groupby(level='date').apply(perform_regression)
-        if isinstance(res.index, pd.MultiIndex):
-            res = pd.Series(res.unstack().mean())
-        else:
-            res = pd.Series(res.mean())
+    #     res = df.groupby(level='date').apply(perform_regression)
+    #     if isinstance(res.index, pd.MultiIndex):
+    #         res = pd.Series(res.unstack().mean())
+    #     else:
+    #         res = pd.Series(res.mean())
             
-        res.name = date
-        return res
+    #     res.name = date
+    #     return res
     
