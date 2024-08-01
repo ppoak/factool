@@ -596,9 +596,7 @@ class PriceVolumeCorr(BaseFactor):
         return res
 
     def get_nearness_high_historical(self, date: str) -> pd.Series:
-        universe = self.setup_universe(date)
-
-        high = quotes_day.read( "high", code=universe, stop=date)
+        high = quotes_day.read( "high", stop=date)
         res = high.tail(21).max()/high.max()
         res.name = date
         return res
