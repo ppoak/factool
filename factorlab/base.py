@@ -109,41 +109,19 @@ class BaseFactor(quool.Factor):
     def setup_universe(
             self, 
             date: pd.Timestamp, 
-            benchmark: str = '000985.XSHG',
-            ptype: str = "volume_weighted_price",
+            benchmark: str = '000985.XSHG', #'000906.XSHG
     )-> list:
-        universe = index_weights.read(benchmark ,start=date, stop=date).columns
-        is_st_suspended= quotes_day.read("st, suspended", start=date, stop=date)
-        rollback = self.get_trading_days_rollback(date, 1)
-        price = self.read(ptype, start=rollback, stop=date)
-        adjfactor = quotes_day.read("adjfactor", start=rollback, stop=date)
-        price = price * adjfactor
-        ret = price / price.shift(1) - 1
-        ret = (ret.dropna(how='all').unstack().abs() >= 0.1).to_frame(name='ret')
-        df = pd.concat([is_st_suspended, ret], axis=1)
-        realizable = df[
-            (df['st'] == False) & (df['suspended'] == False) & (df['ret'] == False)
-            ].index.get_level_values(self._code_level)
-        return universe.intersection(realizable).to_list()
+        universe = filter.read(benchmark,start=date, stop=date).loc[date]
+        return universe[universe==False].index.tolist()
     
     def filter_factor(
         self, 
         factor: str | pd.DataFrame | pd.Series,
-        ptype: str = "volume_weighted_price",
         benchmark: str = '000985.XSHG',
     ):
-        start = self.get_trading_days_rollback(factor.index[0], 1)
-        stop =  factor.index[-1]
-        price = self.read(ptype, start=start, stop=stop)
-        adjfactor = quotes_day.read("adjfactor", start=start, stop=stop)
-        price = price * adjfactor
-        ret = price / price.shift(1) - 1
-        st = quotes_day.read("st", start=start, stop=stop)
-        suspended = quotes_day.read("suspended", start=start, stop=stop)
-        benchmark = index_weights.read(benchmark ,start=start, stop=stop).isna()
-        nonrealizable = st | suspended | (ret.abs() >= 0.1) | benchmark
+        nonrealizable = filter.read(benchmark,start=factor.index[0], stop=factor.index[-1])
         return super().filter_factor(factor, nonrealizable=nonrealizable)
-
+        
     def get_future(
         self, 
         ptype: str = "volume_weighted_price",
@@ -180,3 +158,4 @@ barra_rq = quool.Factor("./data/barra-factor-rq", code_level="order_book_id", da
 barra_returns_rq = quool.Factor("./data/barra-returns-rq", code_level="order_book_id", date_level="date")
 industry_returns = quool.Factor("./data/industry-returns-citics-rq", code_level="order_book_id", date_level="date")
 barra = quool.Factor("./data/barra-factor", code_level="order_book_id", date_level="date")
+filter = quool.Factor("./data/filter-mask", code_level="order_book_id", date_level="date")
