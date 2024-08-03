@@ -8,7 +8,87 @@ from .base import (
 
     
 class MomentumFactor(BaseFactor):
-
+    def get_1week_ret(self, date: str):
+        rollback = quotes_day.get_trading_days_rollback(date, 5)
+        price = quotes_day.read("close", start=rollback, stop=date)
+        _adj= quotes_day.read("adjfactor", start=rollback, stop=date)
+        price = price * _adj
+        res = price.iloc[-1]/price.iloc[0] -1
+        res.name = date
+        return res
+    
+    def get_2week_ret(self, date: str):
+        rollback = quotes_day.get_trading_days_rollback(date, 10)
+        price = quotes_day.read("close", start=rollback, stop=date)
+        _adj= quotes_day.read("adjfactor", start=rollback, stop=date)
+        price = price * _adj
+        res = price.iloc[-1]/price.iloc[0] -1
+        res.name = date
+        return res
+    
+    def get_3week_ret(self, date: str):
+        rollback = quotes_day.get_trading_days_rollback(date, 15)
+        price = quotes_day.read("close", start=rollback, stop=date)
+        _adj= quotes_day.read("adjfactor", start=rollback, stop=date)
+        price = price * _adj
+        res = price.iloc[-1]/price.iloc[0] -1
+        res.name = date
+        return res
+    
+    def get_4week_ret(self, date: str):
+        rollback = quotes_day.get_trading_days_rollback(date, 20)
+        price = quotes_day.read("close", start=rollback, stop=date)
+        _adj= quotes_day.read("adjfactor", start=rollback, stop=date)
+        price = price * _adj
+        res = price.iloc[-1]/price.iloc[0] -1
+        res.name = date
+        return res
+    
+    def get_nonrencent1week_4week_ret(self, date: str):
+        rollback = quotes_day.get_trading_days_rollback(date, 20)
+        price = quotes_day.read("close", start=rollback, stop=date)
+        _adj= quotes_day.read("adjfactor", start=rollback, stop=date)
+        price = (price * _adj).iloc[:-5]
+        res = price.iloc[-1]/price.iloc[0] -1
+        res.name = date
+        return res
+    
+    def get_8week_ret(self, date: str):
+        rollback = quotes_day.get_trading_days_rollback(date, 40)
+        price = quotes_day.read("close", start=rollback, stop=date)
+        _adj= quotes_day.read("adjfactor", start=rollback, stop=date)
+        price = price * _adj
+        res = price.iloc[-1]/price.iloc[0] -1
+        res.name = date
+        return res
+    
+    def get_16week_ret(self, date: str):
+        rollback = quotes_day.get_trading_days_rollback(date, 80)
+        price = quotes_day.read("close", start=rollback, stop=date)
+        _adj= quotes_day.read("adjfactor", start=rollback, stop=date)
+        price = price * _adj
+        res = price.iloc[-1]/price.iloc[0] -1
+        res.name = date
+        return res
+    
+    def get_50week_ret(self, date: str):
+        rollback = quotes_day.get_trading_days_rollback(date, 250)
+        price = quotes_day.read("close", start=rollback, stop=date)
+        _adj= quotes_day.read("adjfactor", start=rollback, stop=date)
+        price = price * _adj
+        res = price.iloc[-1]/price.iloc[0] -1
+        res.name = date
+        return res
+    
+    def get_100week_ret(self, date: str):
+        rollback = quotes_day.get_trading_days_rollback(date, 500)
+        price = quotes_day.read("close", start=rollback, stop=date)
+        _adj= quotes_day.read("adjfactor", start=rollback, stop=date)
+        price = price * _adj
+        res = price.iloc[-1]/price.iloc[0] -1
+        res.name = date
+        return res
+    
     def get_nonrecent_momentum(self, date: str):
         rollback = quotes_day.get_trading_days_rollback(date, 525)
         price = quotes_day.read("close", start=rollback, stop=date)

@@ -443,11 +443,26 @@ class PriceVolumeCorr(BaseFactor):
         res.name = date
         return res
     
-    def get_str(self, date: str) -> pd.Series:
+    def get_str_000985(self, date: str) -> pd.Series:
+        universe = self.setup_universe(date, benchmark='000985.XSHG')
+
         rollback = quotes_day.get_trading_days_rollback(date, 1)
-        price = quotes_day.read("close", start=rollback, stop=date)
-        _adj = quotes_day.read("adjfactor", start=rollback, stop=date)
+        price = quotes_day.read("close", code=universe, start=rollback, stop=date)
+        _adj = quotes_day.read("adjfactor", code=universe, start=rollback, stop=date)
         ret = (price * _adj).pct_change(fill_method=None).tail(1).squeeze()
+
+        res = (ret - ret.mean()).abs() / (ret.abs() + np.abs(ret.mean()) + 0.1) 
+        res.name = date
+        return res
+    
+    def get_str_000906(self, date: str) -> pd.Series:
+        universe = self.setup_universe(date, benchmark='000906.XSHG')
+
+        rollback = quotes_day.get_trading_days_rollback(date, 1)
+        price = quotes_day.read("close", code=universe, start=rollback, stop=date)
+        _adj = quotes_day.read("adjfactor", code=universe, start=rollback, stop=date)
+        ret = (price * _adj).pct_change(fill_method=None).tail(1).squeeze()
+
         res = (ret - ret.mean()).abs() / (ret.abs() + np.abs(ret.mean()) + 0.1) 
         res.name = date
         return res
@@ -470,27 +485,21 @@ class PriceVolumeCorr(BaseFactor):
         res.name = date
         return res
     
-    def get_intraday_ret_str(self, date: str) -> pd.Series:
-        rollback = quotes_day.get_trading_days_rollback(date, 1)
-        price = quotes_min.read("close", start=rollback, stop=date + pd.Timedelta(days=1))
+    def get_intraday_ret_str_000985(self, date: str) -> pd.Series:
+        universe = self.setup_universe(date, benchmark='000985.XSHG')
+
+        price = quotes_min.read("close", code=universe, start=date, stop=date + pd.Timedelta(days=1))
         ret = (1 + price.pct_change(fill_method=None)).prod()
         res = (ret - ret.mean()).abs() / (ret.abs() + np.abs(ret.mean()) + 0.1) 
         res.name = date
         return res
     
-    def get_minute_str(self, date: str) -> pd.Series:
-        rollback = quotes_day.get_trading_days_rollback(date, 1)
-        price = quotes_min.read("close", start=rollback, stop=date + pd.Timedelta(days=1))
-        ret = price.pct_change(fill_method=None)
-        res = ret.sub(ret.mean(axis=1),axis=0) / (ret.abs().add(np.abs(ret.mean(axis=1)), axis=0) + 0.01)
-        res = res.mean()
-        res.name = date
-        return res
-    
-    def get_5minute_str(self, date: str) -> pd.Series:
-        price = quotes_min.read("close", start=date, stop=date + pd.Timedelta(days=1))
-        ret = price.pct_change(periods=5, fill_method=None)
-        res = ret.sub(ret.mean(axis=1),axis=0) / (ret.abs().add(np.abs(ret.mean(axis=1)), axis=0) + 0.01)
+    def get_10minute_str_000985(self, date: str) -> pd.Series:
+        universe = self.setup_universe(date, benchmark='000985.XSHG')
+
+        price = quotes_min.read("close", code=universe, start=date, stop=date + pd.Timedelta(days=1))
+        ret = price.pct_change(periods=10, fill_method=None)
+        res = (ret.sub(ret.mean(axis=1),axis=0)).abs()/ (ret.abs().add(np.abs(ret.mean(axis=1)), axis=0) + 0.01)
         res = res.mean()
         res.name = date
         return res

@@ -105,7 +105,7 @@ def neutralization(
 
 
 class BaseFactor(quool.Factor):
-    # 如果因子需要截面计算均值，加合等，需要实现这个方法避免bias
+    # 如果因子需要截面计算，需要实现这个方法避免bias
     def setup_universe(
             self, 
             date: pd.Timestamp, 
@@ -116,7 +116,7 @@ class BaseFactor(quool.Factor):
     
     def filter_factor(
         self, 
-        factor: str | pd.DataFrame | pd.Series,
+        factor: pd.DataFrame,
         benchmark: str = '000985.XSHG',
     ):
         nonrealizable = filter.read(benchmark,start=factor.index[0], stop=factor.index[-1])
@@ -135,6 +135,7 @@ class BaseFactor(quool.Factor):
         price = self.read(ptype, start=start, stop=stop)
         adjfactor = quotes_day.read("adjfactor", start=start, stop=stop)
         price = price * adjfactor
+        price = price.replace(0, np.nan)
         ret = price / price.shift(1) - 1
         nonrealizable = (ret.abs() >= 0.1)
         return super().get_future(price, period, skip_nonperiod_day, nonrealizable)

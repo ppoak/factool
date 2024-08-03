@@ -34,7 +34,8 @@ class Factor(
     LiquidityFactor
 ):
     pass
-    
+
+basic = Factor("./data/basic-factor", code_level="order_book_id", date_level="date")
 factor = Factor("./data/factor", code_level="order_book_id", date_level="date")
 alpha = Factor("./data/alpha", code_level="order_book_id", date_level="date")
 barra = Factor("./data/barra-factor", code_level="order_book_id", date_level="date")
