@@ -24,17 +24,23 @@ def madoutlier(
     dev: int, 
     drop: bool = False
 ):
-    median = df.median(axis=1)
-    ad = df.sub(median, axis=0)
-    mad = ad.abs().median(axis=1)
-    thresh_down = median - dev * mad
-    thresh_up = median + dev * mad
-    if not drop:
-        return df.clip(thresh_down, thresh_up, axis=0).where(~df.isna())
-    return df.where(
-        df.le(thresh_up, axis=0) & df.ge(thresh_down, axis=0),
-        other=np.nan, axis=0).where(~df.isna())
-
+    def apply_mad(df: pd.DataFrame) -> pd.DataFrame:
+        median = df.median(axis=1)
+        ad = df.sub(median, axis=0)
+        mad = ad.abs().median(axis=1)
+        thresh_down = median - dev * mad
+        thresh_up = median + dev * mad
+        if not drop:
+            return df.clip(thresh_down, thresh_up, axis=0).where(~df.isna())
+        return df.where(
+            df.le(thresh_up, axis=0) & df.ge(thresh_down, axis=0),
+            other=np.nan, axis=0).where(~df.isna())
+    
+    if isinstance(df.index, pd.MultiIndex):
+        return df.apply(lambda x: apply_mad(x.unstack('order_book_id')).unstack())
+    else:
+        return apply_mad(df)
+        
 def stdoutlier( 
     df: pd.DataFrame, 
     dev: int, 
@@ -129,15 +135,14 @@ class BaseFactor(quool.Factor):
         start: str | pd.Timestamp = None,
         stop: str | pd.Timestamp = None,
         skip_nonperiod_day: bool = False,
+        benchmark: str = '000985.XSHG',
     ):
         if stop is not None:
             stop = self.get_trading_days_rollback(stop, -period - 1)
         price = self.read(ptype, start=start, stop=stop)
         adjfactor = quotes_day.read("adjfactor", start=start, stop=stop)
         price = price * adjfactor
-        price = price.replace(0, np.nan)
-        ret = price / price.shift(1) - 1
-        nonrealizable = (ret.abs() >= 0.1)
+        nonrealizable = filter.read(benchmark, start=start, stop=stop)
         return super().get_future(price, period, skip_nonperiod_day, nonrealizable)
 
     def get(self, name: str, start: str = None, stop: str = None, n_jobs: int = -1):

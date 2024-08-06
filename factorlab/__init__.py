@@ -3,7 +3,7 @@ from .base import (
     quotes_day, quotes_min,
     stock_connect, financial, industry_info, 
     index_quotes_day,index_quotes_min, index_weights, 
-    barra_rq, barra_returns_rq, industry_returns,
+    barra_rq, barra_returns_rq, industry_returns, filter,
     wscore, zscore, minmax,
     madoutlier, stdoutlier, iqroutlier,
     fillna, log, tsmean, sqrt, neutralization,
