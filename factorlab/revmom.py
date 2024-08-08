@@ -164,20 +164,19 @@ class MomentumFactor(BaseFactor):
         rollback = quotes_day.get_trading_days_rollback(date, 5)
         vwap = self.read("volume_weighted_price", start=rollback, stop=date)
         _adj= quotes_day.read("adjfactor", start=rollback, stop=date)
-        vwap_adj = (vwap * _adj).unstack().to_frame(name='price_adj')
+        vwap_adj = (vwap * _adj).unstack().to_frame(name='vwap_adj')
         
-        LLT = self.read('LLT_3, LLT_5, LLT_20, LLT_60, LLT_125, LLT250',start=rollback, stop=date - pd.Timedelta(days=1))
-        df = pd.merge(LLT, vwap_adj, left_index=True, right_index=True)
+        llt = self.read('llt_3, llt_5, llt_20, llt_60, llt_125, llt_250',start=rollback, stop=date - pd.Timedelta(days=1))
+        df = pd.merge(llt, vwap_adj, left_index=True, right_index=True)
         df = df.div(df['vwap_adj'],axis=0)
 
-        # future = self.get_future(start=rollback, stop=date, period=1).unstack().to_frame(name ='future')
-        ret = (vwap_adj).pct_change(fill_method=None).shift(-1).unstack().to_frame(name ='ret')
+        ret = (vwap * _adj).pct_change(fill_method=None).shift(-1).unstack().to_frame(name ='ret')
         ret = ret.replace([np.inf, -np.inf], np.nan)
         df = pd.merge(df, ret, left_index=True, right_index=True)
         
         def perform_regression(group):
             group = group.dropna()
-            X = group[['LLT_3', 'LLT_5', 'LLT_20', 'LLT_60', 'LLT_125', 'LLT_250']].droplevel(self._date_level)
+            X = group[['llt_3', 'llt_5', 'llt_20', 'llt_60', 'llt_125', 'llt_250']].droplevel(self._date_level)
             y = group['ret'].droplevel(self._date_level)
             X = sm.add_constant(X)
             model = sm.OLS(y, X).fit()
