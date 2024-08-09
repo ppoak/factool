@@ -1,48 +1,13 @@
 import numpy as np
-import cvxpy as cp
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torch.utils.data import Dataset, DataLoader
+import cvxpy as cp
 from cvxpylayers.torch import CvxpyLayer
-
-
-def cov_matrix_sqrt_svd(cov_matrix):
-    U, S, Vt = np.linalg.svd(cov_matrix)
-    return U @ np.diag(np.sqrt(S)) @ Vt
-
-def minmax(tensor):
-    min_vals = tensor.min(dim=1, keepdim=True)[0]
-    max_vals = tensor.max(dim=1, keepdim=True)[0]
-    return (tensor - min_vals) / (max_vals - min_vals)
-
-class TimeSliceDataset(Dataset):
-    def __init__(self, data):
-        self.data = data
-        self.time_slices = data.index.get_level_values(0).unique()
-        self.cov_matrix = data.index.get_level_values(1).unique()
-        self.label = '20d_future_ret'
-
-    def __len__(self):
-        return len(self.time_slices)
-
-    def __getitem__(self, idx):
-        time_point = self.time_slices[idx]
-        slice_data = self.data.loc[time_point]
-
-        features = slice_data.drop(columns=[self.label] + list(self.cov_matrix)).values
-        label = slice_data[self.label].values
-
-        try:
-            cov_matrix = slice_data[self.cov_matrix].values
-            Q_sqrt = cov_matrix_sqrt_svd(cov_matrix)
-            Q_sqrt_tensor = torch.tensor(Q_sqrt, dtype=torch.float32)
-        except:
-            Q_sqrt_tensor = None
-
-        features_tensor = torch.tensor(features, dtype=torch.float32)
-        label_tensor = torch.tensor(label, dtype=torch.float32)
-        return features_tensor, Q_sqrt_tensor, label_tensor
+from preprocess import minmax
+import quool
+cvlayer = quool.Factor("./data/cv-layer-factor", code_level="order_book_id", date_level="date")
+cvret = quool.Factor("./data/cv-layer-ret", code_level="order_book_id", date_level="date")
 
 class RiskBudgetModel(nn.Module):
     
@@ -55,23 +20,23 @@ class RiskBudgetModel(nn.Module):
         self.hardtanh = nn.Hardtanh(min_val=lower, max_val=upper)
 
         n = 5
-        c = 0.1
+        self.c = nn.Parameter(torch.tensor(0.1)) # 较大的 c 倾向于更分散的权重分布
         b = cp.Parameter(n, nonneg=True) # 风险预算，前向传播
         Q_sqrt = cp.Parameter((n, n)) # 斜方差矩阵的平方根
-        w = cp.Variable(n)   
+        y = cp.Variable(n)   
 
-        obj = cp.Minimize(cp.sum_squares(Q_sqrt @ w)) # 最小化组合的方差，控制总风险
+        obj = cp.Minimize(cp.sum_squares(Q_sqrt @ y)) # 最小化组合的方差，控制总风险
 
         cons = [
-            w >= 0, 
-            b.T @ cp.log(w) >= c, # 每个资产的权重 w 满足特定的风险分配，对数函数线性化一些非线性关系具有凸优化的特性
+            y >= 0, 
+            b.T @ cp.log(y) >= self.c.detach().numpy(), # 每个资产满足特定的风险分配，对数函数线性化一些非线性关系具有凸优化的特性
         ]
 
         prob = cp.Problem(obj, cons)
         self.cvxpy_layer = CvxpyLayer(
             prob, 
             parameters=[b, Q_sqrt], 
-            variables=[w]
+            variables=[y]
         )
 
     def forward(self, x, Q_sqrt):
@@ -86,7 +51,39 @@ class RiskBudgetModel(nn.Module):
         # Loop over batch dimension
         weights = []
         for i in range(b.shape[0]):  
-            w, = self.cvxpy_layer(b[i], Q_sqrt[i])
-            w = w / w.sum()
+            y, = self.cvxpy_layer(b[i], Q_sqrt[i])
+            w = y / y.sum()
             weights.append(w)
         return torch.stack(weights)
+    
+def train_model(dataloader, model, optimizer, epochs=50, early_stopping=10):
+    patience_counter = 0
+    best_loss = np.inf
+
+    for epoch in range(epochs):
+        epoch_loss = 0.0
+        for idx, (batch_features, batch_Q_sqrt, batch_labels) in enumerate(dataloader):
+            optimizer.zero_grad()
+            weights = model(batch_features, batch_Q_sqrt)
+            ret = torch.mul(weights, batch_labels).sum(axis=1)
+            loss = -torch.sum(ret)
+            loss.backward()
+            optimizer.step()
+            epoch_loss += loss.item()
+
+            # if idx % 5 == 0:
+            #     print('Current epoch: %d, Current batch: %d, Loss is %.3f' %(epoch+1,idx+1,loss.item()))
+
+        epoch_loss /= len(dataloader)
+        print(f'Epoch {epoch+1}/{epochs}, Loss: {epoch_loss}')
+
+        if epoch_loss < best_loss:
+            best_loss = epoch_loss
+            patience_counter = 0
+            torch.save(model.state_dict(), 'FactorModel1.pth')
+        else:
+            patience_counter += 1
+
+        if patience_counter >= early_stopping:
+            print("Early stopping")
+            break
