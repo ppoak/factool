@@ -23,15 +23,16 @@ def set_seed(seed):
     random.seed(seed)
 
 def evaluate_model():
-    model = RiskBudgetModel(input_dim=55, hidden_dim=10, output_dim=5, lower=0.05, upper=0.3)
-    model.load_state_dict(torch.load('FactorModel.pth', weights_only=True))
+    model = RiskBudgetModel(input_dim=55, hidden_dim=10, output_dim=5, lower=0.05, upper=0.35)
+    model.load_state_dict(torch.load('FactorModel3.pth', weights_only=True))
     model.eval()
 
-    input_data = cvlayer.read('1d_ret, 2d_ret, 3d_ret, 4d_ret, 5d_ret, 10d_ret, 10d_std, 20d_ret, 20d_std, 30d_ret, 30d_std', start='20230101', stop='20240601').swaplevel('date', 'order_book_id').sort_index().drop(columns='20d_future_ret')
-    future = cvlayer.read('20d_future_ret',start='20230601', stop='20240601')
+    processor= [(madoutlier,{'dev': 5, 'drop': False}), zscore]
+    input_data = cvlayer.read('1d_ret, 2d_ret, 3d_ret, 4d_ret, 5d_ret, 10d_ret, 10d_std, 20d_ret, 20d_std, 30d_ret, 30d_std', stop='20240601', processor=processor).swaplevel('date', 'order_book_id').sort_index()
+    future = cvlayer.read('20d_future_ret',start='20170601' ,stop='20240601')
     cov_matrix = input_data['1d_ret'].unstack().rolling(30).cov().dropna(how='all')
     cov_matrix.columns.name = ''
-    input_data = pd.concat([input_data, cov_matrix], axis=1).loc['20230601':]
+    input_data = pd.concat([input_data, cov_matrix], axis=1).loc['20170601':]
     
     cov_columns = cov_matrix.columns
     results = {}
@@ -46,7 +47,7 @@ def evaluate_model():
 
     weights = pd.DataFrame(
     {date: values.flatten() for date, values in results.items()}, index =future.columns).T
-    net_val = (weights * future).sum(axis=1)
+    net_val = (1 + (weights * future[::20]).dropna(how='all').sum(axis=1).to_frame(name='net_val')).cumprod()
     return weights, net_val
 
 def main():
@@ -71,10 +72,14 @@ def main():
     #     print("label Element:", label[0])
     #     break
 
-    model = RiskBudgetModel(input_dim=55, hidden_dim=10, output_dim=5, lower=0.05, upper=0.25)
+    model = RiskBudgetModel(input_dim=55, hidden_dim=10, output_dim=5, lower=0.05, upper=0.35)
     optimizer = optim.Adam(model.parameters(), lr=0.01)
-    train_model(dataloader, model, optimizer)
+    train_model(dataloader, model, optimizer, epochs=50, early_stopping=10)
 
 if __name__ == '__main__':
-    main()
-    # weights, net_val = evaluate_model()
+    # main()
+
+    weights, net_val = evaluate_model()
+    name = 'FactorModel3'
+    net_val.to_excel(f'./test/{name}_net_val.xlsx')
+    weights.to_excel(f'./test/{name}_weights.xlsx')

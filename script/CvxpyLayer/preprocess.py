@@ -40,7 +40,6 @@ def madoutlier(
         return df.apply(lambda x: apply_mad(x.unstack('order_book_id')).unstack())
     else:
         return apply_mad(df)
-    
 
 class TimeSliceDataset(Dataset):
     def __init__(self, data):

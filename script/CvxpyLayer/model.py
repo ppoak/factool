@@ -5,10 +5,6 @@ import torch.optim as optim
 import cvxpy as cp
 from cvxpylayers.torch import CvxpyLayer
 from preprocess import minmax
-import quool
-cvlayer = quool.Factor("./data/cv-layer-factor", code_level="order_book_id", date_level="date")
-cvret = quool.Factor("./data/cv-layer-ret", code_level="order_book_id", date_level="date")
-
 class RiskBudgetModel(nn.Module):
     
     def __init__(self, input_dim, hidden_dim, output_dim, lower, upper):
@@ -80,7 +76,7 @@ def train_model(dataloader, model, optimizer, epochs=50, early_stopping=10):
         if epoch_loss < best_loss:
             best_loss = epoch_loss
             patience_counter = 0
-            torch.save(model.state_dict(), 'FactorModel1.pth')
+            torch.save(model.state_dict(), 'FactorModel.pth')
         else:
             patience_counter += 1
 
