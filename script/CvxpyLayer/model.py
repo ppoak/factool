@@ -55,24 +55,23 @@ class RiskBudgetModel(nn.Module):
         self.hardtanh = nn.Hardtanh(min_val=lower, max_val=upper)
 
         n = 5
-        c = 0.1 # 最低风险预算
-        self.b = cp.Parameter(n, nonneg=True) # 风险预算，前向传播
-        self.Q_sqrt = cp.Parameter((n, n)) # 斜方差矩阵的平方根
+        c = 0.1
+        b = cp.Parameter(n, nonneg=True) # 风险预算，前向传播
+        Q_sqrt = cp.Parameter((n, n)) # 斜方差矩阵的平方根
+        w = cp.Variable(n)   
 
-        self.w = cp.Variable(n)   
+        obj = cp.Minimize(cp.sum_squares(Q_sqrt @ w)) # 最小化组合的方差，控制总风险
 
-        self.obj = cp.Minimize(cp.sum_squares(self.Q_sqrt @ self.w)) # 最小化组合的方差，控制总风险
-
-        self.cons = [
-            self.w >= 0,  
-            self.b.T @ cp.log(self.w) >= c, # 每个资产的权重 w 满足特定的风险分配，对数函数线性化一些非线性关系具有凸优化的特性
+        cons = [
+            w >= 0, 
+            b.T @ cp.log(w) >= c, # 每个资产的权重 w 满足特定的风险分配，对数函数线性化一些非线性关系具有凸优化的特性
         ]
 
-        self.prob = cp.Problem(self.obj, self.cons)
+        prob = cp.Problem(obj, cons)
         self.cvxpy_layer = CvxpyLayer(
-            self.prob, 
-            parameters=[self.b, self.Q_sqrt], 
-            variables=[self.w]
+            prob, 
+            parameters=[b, Q_sqrt], 
+            variables=[w]
         )
 
     def forward(self, x, Q_sqrt):
@@ -88,5 +87,6 @@ class RiskBudgetModel(nn.Module):
         weights = []
         for i in range(b.shape[0]):  
             w, = self.cvxpy_layer(b[i], Q_sqrt[i])
+            w = w / w.sum()
             weights.append(w)
         return torch.stack(weights)
