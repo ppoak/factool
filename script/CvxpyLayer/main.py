@@ -51,7 +51,7 @@ def evaluate_model():
     return weights, net_val
 
 def main():
-    set_seed(0)
+    set_seed(1)
     processor= [(madoutlier,{'dev': 5, 'drop': False}), zscore]
     data = cvlayer.read('1d_ret, 2d_ret, 3d_ret, 4d_ret, 5d_ret, 10d_ret, 10d_std, 20d_ret, 20d_std, 30d_ret, 30d_std',stop='20230501', processor=processor).swaplevel('date', 'order_book_id').sort_index()
     future = cvlayer.read('20d_future_ret',stop='20230501').stack().to_frame(name='future')
@@ -72,14 +72,15 @@ def main():
     #     print("label Element:", label[0])
     #     break
 
-    model = RiskBudgetModel(input_dim=55, hidden_dim=10, output_dim=5, lower=0.05, upper=0.35)
+    # model = RiskBudgetModel(input_dim=55, hidden_dim=10, output_dim=5, lower=0.05, upper=0.30)
+    model = RiskBudgetModel(input_dim=11, hidden_dim=10, output_dim=1, lower=0.05, upper=0.30)
     optimizer = optim.Adam(model.parameters(), lr=0.01)
     train_model(dataloader, model, optimizer, epochs=50, early_stopping=10)
 
 if __name__ == '__main__':
-    # main()
+    main()
 
-    weights, net_val = evaluate_model()
-    name = 'FactorModel3'
-    net_val.to_excel(f'./test/{name}_net_val.xlsx')
-    weights.to_excel(f'./test/{name}_weights.xlsx')
+    # weights, net_val = evaluate_model()
+    # name = 'FactorModel3'
+    # net_val.to_excel(f'./test/{name}_net_val.xlsx')
+    # weights.to_excel(f'./test/{name}_weights.xlsx')

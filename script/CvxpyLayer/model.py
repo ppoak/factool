@@ -36,21 +36,29 @@ class RiskBudgetModel(nn.Module):
         )
 
     def forward(self, x, Q_sqrt):
-        # x 的形状应为 [batch_size, 5, 11]
-        b = self.fc1(x.view(x.size(0), -1)) # [batch_size, 5*11]
+        # # x 的形状应为 [batch_size, 5, 11]
+        # b = self.fc1(x.view(x.size(0), -1)) # [batch_size, 5*11]
+        # b = self.leaky_relu(b)
+        # b = self.fc2(b)
+        # b = self.softmax(b)
+        # b = self.hardtanh(b)
+        # b = minmax(b)
+
+        # y, = self.cvxpy_layer(b, Q_sqrt)
+        # w = y / y.sum()
+        # return w
+    
+        b = self.fc1(x)
         b = self.leaky_relu(b)
         b = self.fc2(b)
         b = self.softmax(b)
         b = self.hardtanh(b)
         b = minmax(b)
+        b = b.view(b.size(0), -1)
 
-        # Loop over batch dimension
-        weights = []
-        for i in range(b.shape[0]):  
-            y, = self.cvxpy_layer(b[i], Q_sqrt[i])
-            w = y / y.sum()
-            weights.append(w)
-        return torch.stack(weights)
+        y, = self.cvxpy_layer(b, Q_sqrt)
+        w = y / y.sum()
+        return w
     
 def train_model(dataloader, model, optimizer, epochs=50, early_stopping=10):
     patience_counter = 0
@@ -61,7 +69,7 @@ def train_model(dataloader, model, optimizer, epochs=50, early_stopping=10):
         for idx, (batch_features, batch_Q_sqrt, batch_labels) in enumerate(dataloader):
             optimizer.zero_grad()
             weights = model(batch_features, batch_Q_sqrt)
-            ret = torch.mul(weights, batch_labels).sum(axis=1)
+            ret = torch.mul(weights, batch_labels)
             loss = -torch.sum(ret)
             loss.backward()
             optimizer.step()
