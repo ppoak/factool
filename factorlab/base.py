@@ -134,7 +134,6 @@ class BaseFactor(quool.Factor):
         period: int = 1, 
         start: str | pd.Timestamp = None,
         stop: str | pd.Timestamp = None,
-        skip_nonperiod_day: bool = False,
         benchmark: str = '000985.XSHG',
     ):
         if stop is not None:
@@ -143,7 +142,7 @@ class BaseFactor(quool.Factor):
         adjfactor = quotes_day.read("adjfactor", start=start, stop=stop)
         price = price * adjfactor
         nonrealizable = filter.read(benchmark, start=start, stop=stop)
-        return super().get_future(price, period, skip_nonperiod_day, nonrealizable)
+        return super().get_future(price, period, nonrealizable)
 
     def get(self, name: str, start: str = None, stop: str = None, n_jobs: int = -1):
         start = start or pd.to_datetime('now').strftime(r"%Y-%m-%d")
