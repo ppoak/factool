@@ -115,17 +115,17 @@ class BaseFactor(quool.Factor):
     def setup_universe(
             self, 
             date: pd.Timestamp, 
-            benchmark: str = '000985.XSHG', #'000906.XSHG
+            universe: str = '000985.XSHG', #'000906.XSHG
     )-> list:
-        universe = filter.read(benchmark,start=date, stop=date).loc[date]
+        universe = filter.read(universe,start=date, stop=date).loc[date]
         return universe[universe==False].index.tolist()
     
     def filter_factor(
         self, 
         factor: pd.DataFrame,
-        benchmark: str = '000985.XSHG',
+        universe: str = '000985.XSHG',
     ):
-        nonrealizable = filter.read(benchmark,start=factor.index[0], stop=factor.index[-1])
+        nonrealizable = filter.read(universe,start=factor.index[0], stop=factor.index[-1])
         return super().filter_factor(factor, nonrealizable=nonrealizable)
         
     def get_future(
@@ -134,14 +134,14 @@ class BaseFactor(quool.Factor):
         period: int = 1, 
         start: str | pd.Timestamp = None,
         stop: str | pd.Timestamp = None,
-        benchmark: str = '000985.XSHG',
+        universe: str = '000985.XSHG',
     ):
         if stop is not None:
             stop = self.get_trading_days_rollback(stop, -period - 1)
         price = self.read(ptype, start=start, stop=stop)
         adjfactor = quotes_day.read("adjfactor", start=start, stop=stop)
         price = price * adjfactor
-        nonrealizable = filter.read(benchmark, start=start, stop=stop)
+        nonrealizable = filter.read(universe, start=start, stop=stop)
         return super().get_future(price, period, nonrealizable)
 
     def get(self, name: str, start: str = None, stop: str = None, n_jobs: int = -1):
