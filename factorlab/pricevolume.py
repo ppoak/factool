@@ -3,8 +3,7 @@ import pandas as pd
 import statsmodels.api as sm
 from .base import (
     quotes_day, quotes_min, industry_info, 
-    barra_rq, barra_returns_rq, industry_returns,
-    index_quotes_day, 
+    industry_returns, index_quotes_day, 
     wscore, zscore, neutralization, 
     BaseFactor
 )
@@ -136,8 +135,6 @@ class PriceVolumeCorr(BaseFactor):
         rollback = quotes_day.get_trading_days_rollback(date, 20)
         res = self.read("trend_fund", start=rollback, stop=date).tail(20).sum()/20
         res.name = date
-        # res = res.to_frame().T
-        # neutralization(res,True,True)
         return res
 
     def get_price_spread(self, date: str):
@@ -194,18 +191,6 @@ class PriceVolumeCorr(BaseFactor):
         up = ret[ret>0].mean()
         down = ret[ret<0].mean().abs()
         res = up/(up+down)
-        res.name = date
-        return res
-    
-    def get_minute_rsi_rolling_mean20d(self, date: str):
-        rollback = quotes_day.get_trading_days_rollback(date, 20)
-        res = self.read('minute_rsi', start=rollback, stop=date).tail(20).mean()
-        res.name = date
-        return res
-
-    def get_5minute_rsi_rolling_mean20d(self, date: str):
-        rollback = quotes_day.get_trading_days_rollback(date, 20)
-        res = self.read('5minute_rsi', start=rollback, stop=date).tail(20).mean()
         res.name = date
         return res
     

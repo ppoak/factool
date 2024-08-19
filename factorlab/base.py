@@ -105,10 +105,9 @@ def neutralization(
         y = group['factor']
         model = sm.OLS(y, X).fit()
         return model.resid.droplevel('date')
-
-    res = res.dropna().groupby(level='date').apply(_neutralization)
+    
+    res = res.fillna(0).groupby(level='date').apply(_neutralization)
     return res.unstack()
-
 
 class BaseFactor(quool.Factor):
     # 如果因子需要截面计算，需要实现这个方法避免bias
@@ -138,12 +137,22 @@ class BaseFactor(quool.Factor):
     ):
         if stop is not None:
             stop = self.get_trading_days_rollback(stop, -period - 1)
-        price = self.read(ptype, start=start, stop=stop)
+        price = prices.read(ptype, start=start, stop=stop)
         adjfactor = quotes_day.read("adjfactor", start=start, stop=stop)
         price = price * adjfactor
         nonrealizable = filter.read(universe, start=start, stop=stop)
         return super().get_future(price, period, nonrealizable)
 
+    def industry_inforcoef(
+        self, 
+        start: str | pd.Timestamp = None,
+        stop: str | pd.Timestamp = None,
+        factor: pd.DataFrame = None,
+        future: pd.DataFrame = None,
+    ):
+        ind = industry_info.read('first_industry_name', start=start, stop=stop)
+        return super().industry_inforcoef(ind, factor, future)
+    
     def get(self, name: str, start: str = None, stop: str = None, n_jobs: int = -1):
         start = start or pd.to_datetime('now').strftime(r"%Y-%m-%d")
         stop = stop or pd.to_datetime('now').strftime(r"%Y-%m-%d")
@@ -155,12 +164,12 @@ quotes_day = quool.Factor("./data/quotes-day", code_level="order_book_id", date_
 quotes_min = quool.Factor("./data/quotes-min", code_level="order_book_id", date_level="datetime")
 stock_connect = quool.Factor("./data/stock-connect", code_level="order_book_id", date_level="date")
 financial = quool.Factor("./data/financial", code_level="order_book_id", date_level="date")
-index_weights = quool.Factor("./data/index-weights", code_level="order_book_id", date_level="date")
+industry_info = quool.Factor("./data/industry-info", code_level="order_book_id", date_level="date")
 index_quotes_day = quool.Factor("./data/index-quotes-day", code_level="order_book_id", date_level="date")
 index_quotes_min = quool.Factor("./data/index-quotes-min", code_level="order_book_id", date_level="datetime")
-industry_info = quool.Factor("./data/industry-info", code_level="order_book_id", date_level="date")
-barra_rq = quool.Factor("./data/barra-factor-rq", code_level="order_book_id", date_level="date")
-barra_returns_rq = quool.Factor("./data/barra-returns-rq", code_level="order_book_id", date_level="date")
-industry_returns = quool.Factor("./data/industry-returns-citics-rq", code_level="order_book_id", date_level="date")
-barra = quool.Factor("./data/barra-factor", code_level="order_book_id", date_level="date")
+index_weights = quool.Factor("./data/index-weights", code_level="order_book_id", date_level="date")
+barra = quool.Factor("./data/barra", code_level="order_book_id", date_level="date")
 filter = quool.Factor("./data/filter-mask", code_level="order_book_id", date_level="date")
+prices = quool.Factor("./data/prices", code_level="code", date_level="date")
+industry_returns = quool.Factor("./data/industry-returns", code_level="order_book_id", date_level="date")
+industry_returns_rq = quool.Factor("./data/industry-returns-citics-rq", code_level="order_book_id", date_level="date")

@@ -2,19 +2,19 @@ import numpy as np
 import pandas as pd
 import statsmodels.api as sm
 from .base import (
-    quotes_day, BaseFactor
+    quotes_day, 
+    madoutlier, zscore,
+    BaseFactor
 )
 
 
 class MarketSizeFactor(BaseFactor):
 
-    def get_log_marketcap(self, date: str | pd.Timestamp) -> pd.Series:
-        universe = self.setup_universe(date, benchmark="000985.XSHG")
-        
-        shares = quotes_day.read("circulation_a", code=universe, start=date, stop=date)
-        price = quotes_day.read("close", code=universe, start=date, stop=date)
-        adjfactor = quotes_day.read("adjfactor", code=universe, start=date, stop=date)
-        res = np.log(shares * price * adjfactor).loc[date]
+    def get_log_marketcap(self, date: str | pd.Timestamp) -> pd.Series:        
+        shares = quotes_day.read("circulation_a", start=date, stop=date)
+        price = quotes_day.read("close", start=date, stop=date)
+        adjfactor = quotes_day.read("adjfactor", start=date, stop=date)
+        res = np.log(shares * price * adjfactor).squeeze()
         return res
 
     def get_nonlinear_size(self, date: str | pd.Timestamp) -> pd.Series:
@@ -24,10 +24,10 @@ class MarketSizeFactor(BaseFactor):
         model = sm.OLS(y, x)
         res = model.fit()
         res = res.resid
-        mean = res.mean()
-        std = res.std()
 
         #缩尾和标准化
+        mean = res.mean()
+        std = res.std()
         res = res.clip(mean - 3 * std, mean + 3 * std)
         res = (res - res.mean()) / res.std()
         res.name = date
