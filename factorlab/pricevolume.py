@@ -429,24 +429,24 @@ class PriceVolumeCorr(BaseFactor):
         return res
     
     def get_str_000985(self, date: str) -> pd.Series:
-        universe = self.setup_universe(date, benchmark='000985.XSHG')
+        universe = self.setup_universe(date, universe='000985.XSHG')
 
         rollback = quotes_day.get_trading_days_rollback(date, 1)
         price = quotes_day.read("close", code=universe, start=rollback, stop=date)
         _adj = quotes_day.read("adjfactor", code=universe, start=rollback, stop=date)
-        ret = (price * _adj).pct_change(fill_method=None).tail(1).squeeze()
+        ret = (price * _adj).pct_change(fill_method=None).loc[date]
 
         res = (ret - ret.mean()).abs() / (ret.abs() + np.abs(ret.mean()) + 0.1) 
         res.name = date
         return res
     
     def get_str_000906(self, date: str) -> pd.Series:
-        universe = self.setup_universe(date, benchmark='000906.XSHG')
+        universe = self.setup_universe(date, universe='000906.XSHG')
 
         rollback = quotes_day.get_trading_days_rollback(date, 1)
         price = quotes_day.read("close", code=universe, start=rollback, stop=date)
         _adj = quotes_day.read("adjfactor", code=universe, start=rollback, stop=date)
-        ret = (price * _adj).pct_change(fill_method=None).tail(1).squeeze()
+        ret = (price * _adj).pct_change(fill_method=None).loc[date]
 
         res = (ret - ret.mean()).abs() / (ret.abs() + np.abs(ret.mean()) + 0.1) 
         res.name = date
@@ -471,7 +471,7 @@ class PriceVolumeCorr(BaseFactor):
         return res
     
     def get_intraday_ret_str_000985(self, date: str) -> pd.Series:
-        universe = self.setup_universe(date, benchmark='000985.XSHG')
+        universe = self.setup_universe(date, universe='000985.XSHG')
 
         price = quotes_min.read("close", code=universe, start=date, stop=date + pd.Timedelta(days=1))
         ret = (1 + price.pct_change(fill_method=None)).prod()
@@ -480,7 +480,7 @@ class PriceVolumeCorr(BaseFactor):
         return res
     
     def get_10minute_str_000985(self, date: str) -> pd.Series:
-        universe = self.setup_universe(date, benchmark='000985.XSHG')
+        universe = self.setup_universe(date, universe='000985.XSHG')
 
         price = quotes_min.read("close", code=universe, start=date, stop=date + pd.Timedelta(days=1))
         ret = price.pct_change(periods=10, fill_method=None)

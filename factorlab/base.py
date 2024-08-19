@@ -149,6 +149,7 @@ class BaseFactor(quool.Factor):
         stop: str | pd.Timestamp = None,
         factor: pd.DataFrame = None,
         future: pd.DataFrame = None,
+        method: str = 'pearson',
     ):
         ind = industry_info.read('first_industry_name', start=start, stop=stop)
         return super().industry_inforcoef(ind, factor, future)
