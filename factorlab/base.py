@@ -2,6 +2,7 @@ import quool
 import numpy as np
 import pandas as pd
 import statsmodels.api as sm
+from joblib import Parallel, delayed
 
 def wscore(df: pd.DataFrame, date: pd.Timestamp):
     weight = index_weights.read('000985.XSHG',start=date, stop=date)
@@ -89,25 +90,41 @@ def neutralization(
     industry: bool = False, 
     market: bool = False
 ): 
-    res = df.stack().to_frame(name='factor')
+    start = df.index[0]
+    stop = df.index[-1]
+    ind = None
+    marketcap = None
+    df = df.stack().to_frame(name='factor')
 
     if industry:
-        ind = industry_info.read('first_industry_name', start=df.index[0], stop=df.index[-1])
+        ind = industry_info.read('first_industry_name', start=start, stop=stop)
         ind = pd.get_dummies(ind.stack(), prefix='', prefix_sep='').astype(int)
-        res = res.join(ind, how='outer')
         
     if market:
-        marketcap = barra.read("log_marketcap",  start=df.index[0], stop=df.index[-1]).stack().to_frame(name='marketcap')
-        res = res.join(marketcap, how='outer')
+        marketcap = barra.read("log_marketcap",  start=start, stop=stop).stack().to_frame(name='marketcap')
 
-    def _neutralization(group):
+    def _neutralization(group, ind=None, marketcap=None, date=None):
+        if ind is not None:
+            group = group.join(ind, how='left').fillna(0)
+        if marketcap is not None:
+            group = group.join(marketcap, how='left').fillna(0)
+
         X = sm.add_constant(group.drop('factor', axis=1))
         y = group['factor']
         model = sm.OLS(y, X).fit()
-        return model.resid.droplevel('date')
+        res = model.resid
+        res.name = date
+        return res
     
-    res = res.fillna(0).groupby(level='date').apply(_neutralization)
-    return res.unstack()
+    trading_days = quotes_day.get_trading_days(start, stop)
+    results = Parallel(n_jobs=-1, backend='loky')(
+        delayed(_neutralization)(df.loc[date], 
+                                 ind.loc[date] if ind is not None else None,
+                                 marketcap.loc[date] if marketcap is not None else None, 
+                                 date) 
+        for date in trading_days
+    )
+    return pd.concat(results, axis=1).T.sort_index().loc[start:stop]
 
 class BaseFactor(quool.Factor):
     # 如果因子需要截面计算，需要实现这个方法避免bias
@@ -152,7 +169,7 @@ class BaseFactor(quool.Factor):
         method: str = 'pearson',
     ):
         ind = industry_info.read('first_industry_name', start=start, stop=stop)
-        return super().industry_inforcoef(ind, factor, future)
+        return super().industry_inforcoef(ind, factor, future, method)
     
     def get(self, name: str, start: str = None, stop: str = None, n_jobs: int = -1):
         start = start or pd.to_datetime('now').strftime(r"%Y-%m-%d")

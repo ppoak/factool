@@ -3,7 +3,7 @@ import pandas as pd
 import statsmodels.api as sm
 from .base import (
     quotes_day, quotes_min, industry_info, 
-    industry_returns, index_quotes_day, 
+    industry_returns, index_quotes_day, index_weights,
     wscore, zscore, neutralization, 
     BaseFactor
 )
@@ -479,11 +479,21 @@ class PriceVolumeCorr(BaseFactor):
         res.name = date
         return res
     
-    def get_10minute_str_000985(self, date: str) -> pd.Series:
+    def get_5minute_str_000985(self, date: str) -> pd.Series:
         universe = self.setup_universe(date, universe='000985.XSHG')
 
         price = quotes_min.read("close", code=universe, start=date, stop=date + pd.Timedelta(days=1))
-        ret = price.pct_change(periods=10, fill_method=None)
+        ret = price.pct_change(periods=5, fill_method=None)
+        res = (ret.sub(ret.mean(axis=1),axis=0)).abs()/ (ret.abs().add(np.abs(ret.mean(axis=1)), axis=0) + 0.01)
+        res = res.mean()
+        res.name = date
+        return res
+    
+    def get_5minute_str_000906(self, date: str) -> pd.Series:
+        universe = self.setup_universe(date, universe='000906.XSHG')
+
+        price = quotes_min.read("close", code=universe, start=date, stop=date + pd.Timedelta(days=1))
+        ret = price.pct_change(periods=5, fill_method=None)
         res = (ret.sub(ret.mean(axis=1),axis=0)).abs()/ (ret.abs().add(np.abs(ret.mean(axis=1)), axis=0) + 0.01)
         res = res.mean()
         res.name = date
@@ -530,13 +540,25 @@ class PriceVolumeCorr(BaseFactor):
         res.name = date
         return res
     
-    def get_abnretd(self, date: str) -> pd.Series:
+    def get_abnretd_000985(self, date: str) -> pd.Series:
+        universe = self.setup_universe(date, universe='000985.XSHG')
+
         rollback = quotes_day.get_trading_days_rollback(date, 20)
-        price = quotes_day.read("close", start=rollback, stop=date)
-        _adj = quotes_day.read("adjfactor", start=rollback, stop=date)
+        price = quotes_day.read("close", code=universe, start=rollback, stop=date)
+        _adj = quotes_day.read("adjfactor", code=universe, start=rollback, stop=date)
         ret = (price * _adj).pct_change(fill_method=None)
-        market_ret = index_quotes_day.read('close', code='000985.XSHG', start=rollback, stop=date).pct_change(fill_method=None).squeeze()
-        res = ret.sub(market_ret, axis=0).max().abs()
+        res = ret.sub(ret.mean(axis=1), axis=0).max().abs()
+        res.name = date
+        return res
+    
+    def get_abnretd_000906(self, date: str) -> pd.Series:
+        universe = self.setup_universe(date, universe='000906.XSHG')
+
+        rollback = quotes_day.get_trading_days_rollback(date, 20)
+        price = quotes_day.read("close", code=universe, start=rollback, stop=date)
+        _adj = quotes_day.read("adjfactor", code=universe, start=rollback, stop=date)
+        ret = (price * _adj).pct_change(fill_method=None)
+        res = ret.sub(ret.mean(axis=1), axis=0).max().abs()
         res.name = date
         return res
     
