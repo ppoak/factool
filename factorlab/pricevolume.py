@@ -111,7 +111,7 @@ class PriceVolumeCorr(BaseFactor):
         res = dV_dP_Corr_pp - dV_dP_Corr_pn - dV_dP_Corr_np + dV_dP_Corr_nn
         return res
     
-    def get_trend_fund(self, date: str):
+    def get_5d_trend_fund_net_support(self, date: str):
         rollback = quotes_day.get_trading_days_rollback(date, 5)
         volume_5d_90 = quotes_min.read("volume", start=rollback, stop=date).quantile(0.90)
         volume = quotes_min.read("volume", start=date, stop=date+pd.Timedelta(days=1))
@@ -130,13 +130,21 @@ class PriceVolumeCorr(BaseFactor):
         res = (support_volume * resistance_volume) / shares
         res.name = date
         return res
+    
+    def get_5d_trend_fund_div_meanprice(self, date: str):
+        rollback = quotes_day.get_trading_days_rollback(date, 5)
+        volume_5d_90 = quotes_min.read("volume", start=rollback, stop=date).quantile(0.90)
+        volume = quotes_min.read("volume", start=date, stop=date+pd.Timedelta(days=1))
+        price = quotes_min.read("close", start=date, stop=date+pd.Timedelta(days=1))
+        volume, volume_5d_90 = volume.align(volume_5d_90, axis=1, copy=False)
 
-    def get_trend_fund_20d(self, date: str):
-        rollback = quotes_day.get_trading_days_rollback(date, 20)
-        res = self.read("trend_fund", start=rollback, stop=date).tail(20).sum()/20
+        trend_fund_volume = volume[volume > volume_5d_90]
+        trend_fund = (trend_fund_volume/trend_fund_volume.sum() * price).mean()
+        meanprice = (volume/volume.sum() * price).mean()
+        res = trend_fund/meanprice - 1
         res.name = date
         return res
-
+    
     def get_price_spread(self, date: str):
         rollback = quotes_day.get_trading_days_rollback(date, 252)
         price = quotes_day.read("close", start=rollback, stop=date)
