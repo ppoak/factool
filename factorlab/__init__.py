@@ -3,10 +3,11 @@ from .base import (
     quotes_day, quotes_min,
     stock_connect, financial, industry_info, 
     index_quotes_day, index_quotes_min, index_weights, 
-    filter, prices, industry_returns, industry_returns_rq,
-    wscore, zscore, minmax,
+    filter, prices, industry_returns, 
+    industry_returns_rq, barra_rq, 
+    zscore, minmax,
     madoutlier, stdoutlier, iqroutlier,
-    fillna, log, tsmean, sqrt, neutralization,
+    fillna, log, tsmean, sqrt, neutralization, 
 )
 
 from .marketsize import MarketSizeFactor

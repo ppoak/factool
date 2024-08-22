@@ -4,7 +4,7 @@ import statsmodels.api as sm
 from .base import (
     quotes_day, quotes_min, industry_info, 
     industry_returns, index_quotes_day, index_weights,
-    wscore, zscore, neutralization, 
+    zscore, neutralization, 
     BaseFactor
 )
 

@@ -4,7 +4,7 @@ import statsmodels.api as sm
 from .base import (
     quotes_day, financial,
     industry_info, BaseFactor,
-    zscore, wscore
+    zscore
 )
 
 class EvaluationFactor(BaseFactor):

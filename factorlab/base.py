@@ -4,11 +4,6 @@ import pandas as pd
 import statsmodels.api as sm
 from joblib import Parallel, delayed
 
-def wscore(df: pd.DataFrame, date: pd.Timestamp):
-    weight = index_weights.read('000985.XSHG',start=date, stop=date)
-    return (df.sub(np.sum(weight * df, axis=1),axis=0)
-            ).div(df.std(axis=1), axis=0)
-
 def zscore(df: pd.DataFrame):
     if isinstance(df.index, pd.MultiIndex):
         return df.groupby(level='date').transform(lambda x: (x - x.mean()) / x.std())
@@ -176,7 +171,33 @@ class BaseFactor(quool.Factor):
         stop = stop or pd.to_datetime('now').strftime(r"%Y-%m-%d")
         trading_days = quotes_day.get_trading_days(start, stop)
         return super().get(name, trading_days, n_jobs)
+    
+    def style_exposure(self, factor: pd.DataFrame, universe='000985.XSHG'):
+        period=5
+        ngroup=10
+        start = factor.index[0]
+        stop = factor.index[-1]
+        
+        barra = barra_rq.read(['size', 'non_linear_size', 'momentum', 'liquidity', 'book_to_price',
+        'leverage', 'growth', 'earnings_yield', 'beta', 'residual_volatility'], start=start, stop=stop)
+        weight = index_weights.read(universe,start=start, stop=stop)
+        # weight = (weight/weight).div(weight.count(axis=1),axis=0)
+        style_exposure = barra.apply(lambda x: (x.unstack() * weight).sum(axis=1))
 
+        future = self.get_future("volume_weighted_price", period, start, stop, universe)
+        inforcoef = factor.corrwith(future, axis=1).dropna()
+
+        try: 
+            groups = factor.apply(lambda x: pd.qcut(x, q=ngroup, labels=False), axis=1) + 1
+        except:
+            groups = factor.apply(lambda x: pd.qcut(x.rank(method='first', ascending=True), q=ngroup, labels=False), axis=1) + 1
+        
+        x = 1 if inforcoef.mean() < 0 else 10
+        factor = factor.where(groups.where(groups == x).notna())
+        _weight = (factor/factor).div(factor.count(axis=1),axis=0)
+        factor_exposure = (_weight * factor).sum(axis=1)
+        return (-style_exposure).add(factor_exposure, axis=0).mean()
+    
 
 quotes_day = quool.Factor("./data/quotes-day", code_level="order_book_id", date_level="date")
 quotes_min = quool.Factor("./data/quotes-min", code_level="order_book_id", date_level="datetime")
@@ -191,3 +212,4 @@ filter = quool.Factor("./data/filter-mask", code_level="order_book_id", date_lev
 prices = quool.Factor("./data/prices", code_level="code", date_level="date")
 industry_returns = quool.Factor("./data/industry-returns", code_level="order_book_id", date_level="date")
 industry_returns_rq = quool.Factor("./data/industry-returns-citics-rq", code_level="order_book_id", date_level="date")
+barra_rq = quool.Factor("./data/barra_rq", code_level="order_book_id", date_level="date")
