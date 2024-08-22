@@ -181,8 +181,8 @@ class BaseFactor(quool.Factor):
         barra = barra_rq.read(['size', 'non_linear_size', 'momentum', 'liquidity', 'book_to_price',
         'leverage', 'growth', 'earnings_yield', 'beta', 'residual_volatility'], start=start, stop=stop)
         weight = index_weights.read(universe,start=start, stop=stop)
-        # weight = (weight/weight).div(weight.count(axis=1),axis=0)
-        style_exposure = barra.apply(lambda x: (x.unstack() * weight).sum(axis=1))
+        weight = (weight/weight).div(weight.count(axis=1),axis=0)
+        style_exposure = barra.apply(lambda x: (x.unstack() * weight).sum(axis=1)).mean()
 
         future = self.get_future("volume_weighted_price", period, start, stop, universe)
         inforcoef = factor.corrwith(future, axis=1).dropna()
@@ -193,10 +193,12 @@ class BaseFactor(quool.Factor):
             groups = factor.apply(lambda x: pd.qcut(x.rank(method='first', ascending=True), q=ngroup, labels=False), axis=1) + 1
         
         x = 1 if inforcoef.mean() < 0 else 10
-        factor = factor.where(groups.where(groups == x).notna())
-        _weight = (factor/factor).div(factor.count(axis=1),axis=0)
-        factor_exposure = (_weight * factor).sum(axis=1)
-        return (-style_exposure).add(factor_exposure, axis=0).mean()
+        def _exposure(df: pd.DataFrame):
+            df = df.where(groups.where(groups == x).notna())
+            _weight = (df/df).div(df.count(axis=1),axis=0)
+            return (df * _weight).sum(axis=1).mean()
+        factor_exposure = barra.apply(lambda x: _exposure(x.unstack()))
+        return factor_exposure - style_exposure
     
 
 quotes_day = quool.Factor("./data/quotes-day", code_level="order_book_id", date_level="date")
