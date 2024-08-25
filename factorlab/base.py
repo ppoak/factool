@@ -85,33 +85,33 @@ def neutralization(
     industry: bool = False, 
     market: bool = False
 ): 
-    start = df.index[0]
-    stop = df.index[-1]
-    ind = None
-    marketcap = None
-    df = df.stack().to_frame(name='factor')
+    trading_days = df.index
+    start = trading_days[0]
+    stop = trading_days[-1]
 
     if industry:
-        ind = industry_info.read('first_industry_name', start=start, stop=stop)
-        ind = pd.get_dummies(ind.stack(), prefix='', prefix_sep='').astype(int)
+        ind = industry_info.read('first_industry_name', start=start, stop=stop).stack()
+        ind = pd.get_dummies(ind, prefix='', prefix_sep='').astype(int)
         
     if market:
-        marketcap = barra.read("log_marketcap",  start=start, stop=stop).stack().to_frame(name='marketcap')
+        marketcap = barra.read("log_marketcap",  start=start, stop=stop)
 
     def _neutralization(group, ind=None, marketcap=None, date=None):
+        commom_index = group.index.intersection(ind.index).intersection(marketcap.index)
+        group = group.loc[commom_index].fillna(0)
+        X = [np.ones(len(group))] 
         if ind is not None:
-            group = group.join(ind, how='left').fillna(0)
+            X.append(ind.loc[commom_index].fillna(0).values)
         if marketcap is not None:
-            group = group.join(marketcap, how='left').fillna(0)
-
-        X = sm.add_constant(group.drop('factor', axis=1))
-        y = group['factor']
-        model = sm.OLS(y, X).fit()
-        res = model.resid
-        res.name = date
-        return res
+            X.append(marketcap.loc[commom_index].fillna(0).values)
+        
+        X = np.column_stack(X)
+        y = group.values
+        
+        beta, _, _, _ = np.linalg.lstsq(X, y, rcond=None)
+        res = y - X.dot(beta)
+        return pd.Series(res, index=commom_index, name=date)
     
-    trading_days = quotes_day.get_trading_days(start, stop)
     results = Parallel(n_jobs=-1, backend='loky')(
         delayed(_neutralization)(df.loc[date], 
                                  ind.loc[date] if ind is not None else None,
@@ -166,39 +166,24 @@ class BaseFactor(quool.Factor):
         ind = industry_info.read('first_industry_name', start=start, stop=stop)
         return super().industry_inforcoef(ind, factor, future, method)
     
+    def style_exposure(
+        self, 
+        start: str | pd.Timestamp = None,
+        stop: str | pd.Timestamp = None, 
+        top_group: pd.DataFrame = None, 
+        universe = '000985.XSHG'
+    ):      
+        barra = barra_rq.read(['size', 'non_linear_size', 'momentum', 'liquidity', 'book_to_price',
+        'leverage', 'growth', 'earnings_yield', 'beta', 'residual_volatility'], start=start, stop=stop)
+        weight = index_weights.read(universe,start=start, stop=stop)
+        weight = (weight/weight).div(weight.count(axis=1),axis=0)
+        return super().style_exposure(barra, weight, top_group)
+    
     def get(self, name: str, start: str = None, stop: str = None, n_jobs: int = -1):
         start = start or pd.to_datetime('now').strftime(r"%Y-%m-%d")
         stop = stop or pd.to_datetime('now').strftime(r"%Y-%m-%d")
         trading_days = quotes_day.get_trading_days(start, stop)
         return super().get(name, trading_days, n_jobs)
-    
-    def style_exposure(self, factor: pd.DataFrame, universe='000985.XSHG'):
-        period=5
-        ngroup=10
-        start = factor.index[0]
-        stop = factor.index[-1]
-        
-        barra = barra_rq.read(['size', 'non_linear_size', 'momentum', 'liquidity', 'book_to_price',
-        'leverage', 'growth', 'earnings_yield', 'beta', 'residual_volatility'], start=start, stop=stop)
-        weight = index_weights.read(universe,start=start, stop=stop)
-        weight = (weight/weight).div(weight.count(axis=1),axis=0)
-        style_exposure = barra.apply(lambda x: (x.unstack() * weight).sum(axis=1)).mean()
-
-        future = self.get_future("volume_weighted_price", period, start, stop, universe)
-        inforcoef = factor.corrwith(future, axis=1).dropna()
-
-        try: 
-            groups = factor.apply(lambda x: pd.qcut(x, q=ngroup, labels=False), axis=1) + 1
-        except:
-            groups = factor.apply(lambda x: pd.qcut(x.rank(method='first', ascending=True), q=ngroup, labels=False), axis=1) + 1
-        
-        x = 1 if inforcoef.mean() < 0 else 10
-        def _exposure(df: pd.DataFrame):
-            df = df.where(groups.where(groups == x).notna())
-            _weight = (df/df).div(df.count(axis=1),axis=0)
-            return (df * _weight).sum(axis=1).mean()
-        factor_exposure = barra.apply(lambda x: _exposure(x.unstack()))
-        return factor_exposure - style_exposure
     
 
 quotes_day = quool.Factor("./data/quotes-day", code_level="order_book_id", date_level="date")
