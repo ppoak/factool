@@ -197,6 +197,5 @@ index_weights = quool.Factor("./data/index-weights", code_level="order_book_id",
 barra = quool.Factor("./data/barra", code_level="order_book_id", date_level="date")
 filter = quool.Factor("./data/filter-mask", code_level="order_book_id", date_level="date")
 prices = quool.Factor("./data/prices", code_level="code", date_level="date")
-industry_returns = quool.Factor("./data/industry-returns", code_level="order_book_id", date_level="date")
-industry_returns_rq = quool.Factor("./data/industry-returns-citics-rq", code_level="order_book_id", date_level="date")
+industry_returns = quool.Factor("./data/industry-returns", code_level="industry", date_level="date")
 barra_rq = quool.Factor("./data/barra_rq", code_level="order_book_id", date_level="date")
