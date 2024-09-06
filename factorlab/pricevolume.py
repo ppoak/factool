@@ -602,3 +602,33 @@ class PriceVolumeCorr(BaseFactor):
         res = high.tail(21).max()/high.max()
         res.name = date
         return res
+
+    def get_doc(self, date: str) -> pd.DataFrame:
+        df = quotes_min.read(['volume', 'close'], start=date, stop=date + pd.Timedelta(days=1))
+        volume = df['volume'].unstack('order_book_id')
+        price = df['close'].unstack('order_book_id')
+        ret = np.log(price/price.shift(1))
+        def _doc(ret, volume):
+            group = pd.qcut(ret.rank(method='first', ascending=True), q=20, labels=False)
+            return volume.groupby(group).sum()
+        
+        doc = volume.apply(lambda x: _doc(ret[x.name], x))
+        kurt = doc.kurt()
+        skew = doc.skew()
+        std = doc.std()
+        pdf60 = doc.quantile(0.6)
+        pdf70 = doc.quantile(0.7)
+        pdf80 = doc.quantile(0.8)
+        pdf90 = doc.quantile(0.9)
+        pdf95 = doc.quantile(0.95)
+        doc5_ratio = doc[19:].sum()/doc.sum()
+        doc10_ratio = doc[18:].sum()/doc.sum()
+        doc50_ratio = doc[10:].sum()/doc.sum()
+
+        res = pd.concat([kurt, skew, std, pdf60, pdf70, pdf80, pdf90, pdf95, doc5_ratio, doc10_ratio, doc50_ratio], axis=1, 
+            keys=['doc_kurt', 'doc_skew', 'doc_std', 
+                  'doc_pdf60', 'doc_pdf70', 'doc_pdf80', 'doc_pdf90', 'doc_pdf95',
+                  'doc5_ratio', 'doc10_ratio', 'doc50_ratio'])
+        res.index = pd.MultiIndex.from_product([
+            res.index, [pd.to_datetime(date)]], names=["order_book_id", "date"])
+        return res
