@@ -1,13 +1,9 @@
 import numpy as np
 import pandas as pd
 import statsmodels.api as sm
-from .base import (
-    quotes_day, financial,
-    industry_info, BaseFactor,
-    zscore, wscore
-)
+from .factor import Factor
 
-class EvaluationFactor(BaseFactor):
+class EvaluationFactor(Factor):
 
     def get_book_to_price(self, date: str | pd.Timestamp) -> pd.Series:
         rollback = quotes_day.get_trading_days_rollback(date, rollback=252)

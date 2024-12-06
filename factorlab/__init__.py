@@ -1,14 +1,8 @@
-from .base import (
-    BaseFactor, 
-    quotes_day, quotes_min,
-    stock_connect, financial, industry_info, 
-    index_quotes_day, index_quotes_min, index_weights, 
-    filter, prices, industry_returns, industry_returns_rq,
-    wscore, zscore, minmax,
-    madoutlier, stdoutlier, iqroutlier,
-    fillna, log, tsmean, sqrt, neutralization,
+from .datasource import (
+    quotes_day, quotes_min
 )
 
+from .factor import Factor
 from .marketsize import MarketSizeFactor
 from .retdist import RetDistFactor
 from .pricevolume import DeraPriceFactor, PriceVolumeCorr
@@ -19,6 +13,12 @@ from .evaluation import EvaluationFactor
 from .revmom import MomentumFactor
 from .liquidity import LiquidityFactor
 
+from .processors import (
+    zscore, minmax,
+    madoutlier, stdoutlier, iqroutlier,
+    fillna,
+    log, sqrt, tsmean,
+)
 
 
 class Factor(
@@ -35,6 +35,5 @@ class Factor(
 ):
     pass
 
-factor = Factor("./data/factor", code_level="order_book_id", date_level="date")
-alpha = Factor("./data/alpha", code_level="order_book_id", date_level="date")
-barra = Factor("./data/barra", code_level="order_book_id", date_level="date")
+
+__version__ = "0.2.0"

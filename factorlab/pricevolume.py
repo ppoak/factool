@@ -1,20 +1,22 @@
 import numpy as np
 import pandas as pd
 import statsmodels.api as sm
-from .base import (
-    quotes_day, quotes_min, industry_info, 
-    industry_returns, index_quotes_day, 
-    wscore, zscore, neutralization, 
-    BaseFactor
-)
+from .datasource import quotes_min, quotes_day
+from .factor import Factor
 
 
-class DeraPriceFactor(BaseFactor):
+class DeraPriceFactor(Factor):
 
     def get_volume_weighted_price(self, date: pd.Timestamp):
-        p = quotes_min.read("close", start=date, stop=date + pd.Timedelta(days=1))
-        vol = quotes_min.read("volume", start=date, stop=date + pd.Timedelta(days=1))
-        w = vol / vol.sum()
+        p = quotes_min.read(
+            index="datetime", columns="code", pivot="close", 
+            datetime__ge=date, datetime__le=date + pd.Timedelta(days=1)
+        )
+        v = quotes_min.read(
+            index="datetime", columns="code", pivot="volume", 
+            datetime__ge=date, datetime__le=date + pd.Timedelta(days=1)
+        )
+        w = v / v.sum()
         res = (p * w).sum()
         res.name = date
         return res
@@ -46,7 +48,7 @@ class DeraPriceFactor(BaseFactor):
         return res
 
 
-class PriceVolumeCorr(BaseFactor):
+class PriceVolumeCorr(Factor):
 
     def get_smart_money_ratio(self, date: pd.Timestamp) -> pd.DataFrame:
         rollback = self.get_trading_days_rollback(date, 9)

@@ -1,4 +1,4 @@
-import quool
+import factorlab
 from setuptools import setup, find_packages
 
 
@@ -15,7 +15,7 @@ setup(
     long_description_content_type = "text/markdown",
     keywords = ['quant', 'factor analysis', 'finance'],
     url = "https://github.com/ppoak/quool",
-    version = quool.__version__,
+    version = factorlab.__version__,
     install_requires = [
         'numpy',
         'quool',
@@ -23,4 +23,9 @@ setup(
         'joblib',
         'statsmodels',
     ],
+    entry_points={
+        "console_scripts": [
+            "factorlab=script.__main__:main",
+        ]
+    },
 )

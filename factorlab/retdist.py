@@ -1,13 +1,10 @@
 import numpy as np
 import pandas as pd
 import statsmodels.api as sm
-from .base import (
-    quotes_day, quotes_min, index_quotes_day, 
-    BaseFactor
-)
+from .factor import Factor
 
 
-class RetDistFactor(BaseFactor):
+class RetDistFactor(Factor):
 
     def get_intraday_distribution(self, date: str) -> pd.DataFrame:
         data = quotes_min.read("close", start=date, stop=date + pd.Timedelta(days=1))
