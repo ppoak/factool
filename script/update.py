@@ -25,7 +25,14 @@ if __name__ == "__main__":
     path = Path("data/price_volume")
     begin = "2010-01-01"
     end = "2024-12-05"
-    name = "volume_weighted_price"
+    name = "tail_weighted_price"
     partition = "month"
     n_jobs = -1
-    update_factor(path=path, name=name, begin=begin, end=end, partition=partition, n_jobs=n_jobs)
+    update_factor(
+        path=path,
+        name=name,
+        begin=begin,
+        end=end,
+        partition=partition,
+        n_jobs=n_jobs
+    )

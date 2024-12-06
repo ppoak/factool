@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 import statsmodels.api as sm
-from .datasource import quotes_min, quotes_day
+from .data_source import quotes_min, quotes_day
 from .factor import Factor
 
 
@@ -22,27 +22,42 @@ class DeraPriceFactor(Factor):
         return res
     
     def get_time_weighted_price(self, date: pd.Timestamp):
-        p = quotes_min.read("close", start=date, stop=date + pd.Timedelta(days=1))
+        p = quotes_min.read(
+            index="datetime", columns="code", pivot="close", 
+            datetime__ge=date, datetime__le=date + pd.Timedelta(days=1)
+        )
         res = p.mean()
         res.name = date
         return res
     
     def get_tail_weighted_price(self, date: pd.Timestamp):
-        p = quotes_min.read("close", start=date, stop=date + pd.Timedelta(days=1))
-        vol = quotes_min.read("volume", start=date, stop=date + pd.Timedelta(days=1))
+        p = quotes_min.read(
+            index="datetime", columns="code", pivot="close", 
+            datetime__ge=date, datetime__le=date + pd.Timedelta(days=1)
+        )
+        v = quotes_min.read(
+            index="datetime", columns="code", pivot="volume", 
+            datetime__ge=date, datetime__le=date + pd.Timedelta(days=1)
+        )
         p = p.between_time("14:30", "15:00")
-        vol = vol.between_time("14:30", "15:00")
-        w = vol / vol.sum()
+        v = v.between_time("14:30", "15:00")
+        w = v / v.sum()
         res = (p * w).sum()
         res.name = date
         return res
 
     def get_head_weighted_price(self, date: pd.Timestamp):
-        p = quotes_min.read("close", start=date, stop=date + pd.Timedelta(days=1))
-        vol = quotes_min.read("volume", start=date, stop=date + pd.Timedelta(days=1))
-        p = p.between_time("9:30", "10:00")
-        vol = vol.between_time("9:30", "10:00")
-        w = vol / vol.sum()
+        p = quotes_min.read(
+            index="datetime", columns="code", pivot="close", 
+            datetime__ge=date, datetime__le=date + pd.Timedelta(days=1)
+        )
+        v = quotes_min.read(
+            index="datetime", columns="code", pivot="volume", 
+            datetime__ge=date, datetime__le=date + pd.Timedelta(days=1)
+        )
+        p = p.between_time("09:30", "10:00")
+        v = v.between_time("09:30", "10:00")
+        w = v / v.sum()
         res = (p * w).sum()
         res.name = date
         return res
