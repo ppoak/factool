@@ -8,79 +8,96 @@ from .factor import Factor
 class DeraPriceFactor(Factor):
 
     def get_volume_weighted_price(self, date: pd.Timestamp):
-        p = quotes_min.read(
+        price = quotes_min.read(
             index="datetime", columns="code", pivot="close", 
             datetime__ge=date, datetime__le=date + pd.Timedelta(days=1)
         )
-        v = quotes_min.read(
+        price = quotes_min.read(
             index="datetime", columns="code", pivot="volume", 
             datetime__ge=date, datetime__le=date + pd.Timedelta(days=1)
         )
-        w = v / v.sum()
-        res = (p * w).sum()
+        weight = price / price.sum()
+        res = (price * weight).sum()
         res.name = date
         return res
     
     def get_time_weighted_price(self, date: pd.Timestamp):
-        p = quotes_min.read(
+        price = quotes_min.read(
             index="datetime", columns="code", pivot="close", 
             datetime__ge=date, datetime__le=date + pd.Timedelta(days=1)
         )
-        res = p.mean()
+        res = price.mean()
         res.name = date
         return res
     
     def get_tail_weighted_price(self, date: pd.Timestamp):
-        p = quotes_min.read(
+        price = quotes_min.read(
             index="datetime", columns="code", pivot="close", 
             datetime__ge=date, datetime__le=date + pd.Timedelta(days=1)
         )
-        v = quotes_min.read(
+        volume = quotes_min.read(
             index="datetime", columns="code", pivot="volume", 
             datetime__ge=date, datetime__le=date + pd.Timedelta(days=1)
         )
-        p = p.between_time("14:30", "15:00")
-        v = v.between_time("14:30", "15:00")
-        w = v / v.sum()
-        res = (p * w).sum()
+        price = price.between_time("14:30", "15:00")
+        volume = volume.between_time("14:30", "15:00")
+        weight = volume / volume.sum()
+        res = (price * weight).sum()
         res.name = date
         return res
 
     def get_head_weighted_price(self, date: pd.Timestamp):
-        p = quotes_min.read(
+        price = quotes_min.read(
             index="datetime", columns="code", pivot="close", 
             datetime__ge=date, datetime__le=date + pd.Timedelta(days=1)
         )
-        v = quotes_min.read(
+        volume = quotes_min.read(
             index="datetime", columns="code", pivot="volume", 
             datetime__ge=date, datetime__le=date + pd.Timedelta(days=1)
         )
-        p = p.between_time("09:30", "10:00")
-        v = v.between_time("09:30", "10:00")
-        w = v / v.sum()
-        res = (p * w).sum()
+        price = price.between_time("09:30", "10:00")
+        volume = volume.between_time("09:30", "10:00")
+        weight = volume / volume.sum()
+        res = (price * weight).sum()
         res.name = date
         return res
 
 
 class PriceVolumeCorr(Factor):
 
+    def __init__(self, path: str, partition: str = None):
+        super().__init__(path, partition)
+        if not self.partitions:
+            raise Exception("PriceVolumeCorr build on NONE-EMPTY factor firectory")
+
     def get_smart_money_ratio(self, date: pd.Timestamp) -> pd.DataFrame:
         rollback = self.get_trading_days_rollback(date, 9)
-        price = quotes_min.read("close", start=rollback, stop=date + pd.Timedelta(days=1))
+        price = quotes_min.read(
+            index="datetime", columns="code", pivot="close", 
+            datetime__ge=rollback, datetime__le=date + pd.Timedelta(days=1)
+        )
         ret = price.pct_change(fill_method=None).abs()
-        vol = quotes_min.read("volume", start=rollback, stop=date + pd.Timedelta(days=1))
-        retvol = ret / (vol ** 0.25)
+        volume = quotes_min.read(
+            index="datetime", columns="code", pivot="volume", 
+            datetime__ge=rollback, datetime__le=date + pd.Timedelta(days=1)
+        )
+        retvol = ret / (volume ** 0.25)
         rank = retvol.rank(axis=0, ascending=False)
         rank = rank.le(retvol.count() // 5, axis=1)
-        retvol = vol.where(rank)
-        res = ((retvol * price).sum() / retvol.sum()) / ((vol * price).sum() / vol.sum())
+        retvol = volume.where(rank)
+        res = ((retvol * price).sum() / retvol.sum()) / ((volume * price).sum() / volume.sum())
         res.name = date
         return res
 
     def get_price_volume_corr(self, date: pd.Timestamp) -> pd.DataFrame:
-        price = quotes_min.read("close", start=date, stop=date + pd.Timedelta(days=1))
-        volume = quotes_min.read("volume", start=date, stop=date + pd.Timedelta(days=1))
+        price = quotes_min.read(
+            index="datetime", columns="code", pivot="close", 
+            datetime__ge=date, datetime__le=date + pd.Timedelta(days=1)
+        )
+        volume = quotes_min.read(
+            index="datetime", columns="code", pivot="volume", 
+            datetime__ge=date, datetime__le=date + pd.Timedelta(days=1)
+        )
         res = price.corrwith(volume, axis=0).replace([np.inf, -np.inf], np.nan)
         res.name = date
         return res
