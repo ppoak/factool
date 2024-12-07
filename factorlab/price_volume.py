@@ -3,6 +3,7 @@ import pandas as pd
 import statsmodels.api as sm
 from .data_source import quotes_min, quotes_day
 from .factor import Factor
+from .processors import wscore
 
 
 class DeraPriceFactor(Factor):
@@ -103,54 +104,68 @@ class PriceVolumeCorr(Factor):
         return res
 
     def get_average_relative_price_percent(self, date: pd.Timestamp) -> pd.DataFrame:
-        df = quotes_min.read("open, high, low, close", start=date, stop=date + pd.Timedelta(days=1))
-        twap = df.mean(axis=1).groupby(level=quotes_min._code_level).mean()
-        high = df["high"].groupby(level=quotes_min._code_level).max()
-        low = df["low"].groupby(level=quotes_min._code_level).min()
-        arrp = (twap - low) / (high - low)
-        arrp.name = date
-        return arrp
+        df = quotes_min.read(
+            columns=["open", "high", "low", "close"], index=["datetime", "code"],
+            datetime__ge=date, datetime__le=date + pd.Timedelta(days=1)
+        )
+        twap = df.mean(axis=1).groupby(level="code").mean()
+        high = df["high"].groupby(level="code").max()
+        low = df["low"].groupby(level="code").min()
+        res = (twap - low) / (high - low)
+        res.name = date
+        return res
     
     def get_compound_volume_first(self, date: pd.Timestamp) -> pd.Series:
-        rollback = quotes_day.get_trading_days_rollback(date, 21)
-        dp = quotes_day.read("close", start=rollback, stop=date).diff(1).iloc[1:].tail(20)
-        dv = quotes_day.read("volume", start=rollback, stop=date).diff(1).iloc[1:].head(20)
-        dv.index = dp.index
-        # 原始
-        dV_dP_Corr = dp.corrwith(dv, axis=0)
-        dV_dP_Corr.name = date
-        dV_dP_Corr = wscore(dV_dP_Corr.to_frame().T, date).loc[date]
+        rollback = self.get_trading_days_rollback(date, 21)
+        diff_price = quotes_day.read(
+            pivot="close", index="date", columns="code",
+            date__ge=rollback, date__le=date
+        ).diff(1).iloc[1:].tail(20)
+        diff_volume = quotes_day.read(
+            pivot="close", index="date", columns="code",
+            date__ge=rollback, date__le=date
+        ).diff(1).iloc[1:].head(20)
         
-        dp_p = dp[dp > 0]
-        dv_p = dv[dv > 0]
-        dV_dP_Corr_pp = dp_p.corrwith(dv_p, axis=0)
-        dV_dP_Corr_pp.name = date
-        dV_dP_Corr_pp = wscore(dV_dP_Corr_pp.to_frame().T, date).loc[date]
+        diff_volume.index = diff_price.index
+        corr = diff_price.corrwith(diff_volume, axis=0)
+        corr.name = date
+        corr = wscore(corr.to_frame().T).loc[date]
+        
+        diff_price_pos = diff_price[diff_price > 0]
+        diff_volume_pos = diff_volume[diff_volume > 0]
+        corr_pos_pos = diff_price_pos.corrwith(diff_volume_pos, axis=0)
+        corr_pos_pos.name = date
+        corr_pos_pos = wscore(corr_pos_pos.to_frame().T).loc[date]
 
-        dp_n = dp[dp < 0]
-        dv_n = dv[dv < 0]
-        dV_dP_Corr_nn = dp_n.corrwith(dv_n, axis=0)
-        dV_dP_Corr_nn.name = date
-        dV_dP_Corr_nn = wscore(dV_dP_Corr_nn.to_frame().T, date).loc[date]
+        diff_price_neg = diff_price[diff_price < 0]
+        diff_volume_neg = diff_volume[diff_volume < 0]
+        corr_neg_neg = diff_price_neg.corrwith(diff_volume_neg, axis=0)
+        corr_neg_neg.name = date
+        corr_neg_neg = wscore(corr_neg_neg.to_frame().T).loc[date]
 
-        dV_dP_Corr_np = dp_p.corrwith(dv_n, axis=0)
-        dV_dP_Corr_np.name = date
-        dV_dP_Corr_np = wscore(dV_dP_Corr_np.to_frame().T, date).loc[date]
+        corr_neg_pos = diff_price_pos.corrwith(diff_volume_neg, axis=0)
+        corr_neg_pos.name = date
+        corr_neg_pos = wscore(corr_neg_pos.to_frame().T).loc[date]
 
-        dV_dP_Corr_pn = dp_n.corrwith(dv_p, axis=0)
-        dV_dP_Corr_pn.name = date
-        dV_dP_Corr_pn = wscore(dV_dP_Corr_pn.to_frame().T, date).loc[date]        
+        corr_pos_neg = diff_price_neg.corrwith(diff_volume_pos, axis=0)
+        corr_pos_neg.name = date
+        corr_pos_neg = wscore(corr_pos_neg.to_frame().T).loc[date]        
 
-        # 复合量先价行
-        res = dV_dP_Corr_pp - dV_dP_Corr_pn - dV_dP_Corr_np + dV_dP_Corr_nn
+        res = corr_pos_pos - corr_pos_neg - corr_neg_pos + corr_neg_neg
         return res
     
     def get_trend_fund(self, date: str):
-        rollback = quotes_day.get_trading_days_rollback(date, 5)
-        volume_5d_90 = quotes_min.read("volume", start=rollback, stop=date).quantile(0.90)
-        volume = quotes_min.read("volume", start=date, stop=date+pd.Timedelta(days=1))
-        price = quotes_min.read("close", start=date, stop=date+pd.Timedelta(days=1))
-        volume, volume_5d_90 = volume.align(volume_5d_90, axis=1, copy=False)
+        rollback = self.get_trading_days_rollback(date, 4)
+        volume_5d = quotes_min.read(
+            pivot="volume", index="datetime", columns="code",
+            datetime__ge=rollback, datetime__le=date + pd.Timedelta(days=1)
+        )
+        volume_5d_90 = volume_5d.quantile(0.90)
+        volume = volume_5d.loc[date:]
+        price = quotes_min.read(
+            index="datetime", columns="code", pivot="close", 
+            datetime__ge=date, datetime__le=date + pd.Timedelta(days=1)
+        )
 
         trend_fund_volume = volume[volume > volume_5d_90]
         trend_fund_price = price[~np.isnan(trend_fund_volume)]
