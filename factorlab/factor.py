@@ -47,9 +47,8 @@ class Factor(forge.ParquetManager):
             f"date__ge": pd.to_datetime(begin or "2000-01-01"),
             f"date__le": pd.to_datetime(end or "now"),
             "index": "date",
-            "sort_index": True
         }
-        return super().read(**params).index
+        return super().read(**params).index.unique().sort_values()
     
     def get_trading_days_rollback(
         self, 
@@ -59,7 +58,8 @@ class Factor(forge.ParquetManager):
         date = pd.to_datetime(date or 'now')
         if rollback >= 0:
             trading_days = self.get_trading_days(begin=None, end=date)
-            rollback = trading_days[trading_days <= date][-rollback - 1]
+            rollback_days = trading_days[trading_days <= date]
+            rollback = rollback_days[max(-len(rollback_days), -rollback - 1)]
         else:
             trading_days = self.get_trading_days(begin=date, end=None)
             rollback = trading_days[min(len(trading_days) - 1, -rollback)]
@@ -153,8 +153,8 @@ class Factor(forge.ParquetManager):
         factor: str | pd.DataFrame,
         *,
         period: int = -1,
-        start: str = None,
-        stop: str = None,
+        begin: str = None,
+        end: str = None,
         ptype: str = "volume_weighted_price",
         processor: list = None,
         rolling: int = 20, 
@@ -163,12 +163,12 @@ class Factor(forge.ParquetManager):
         image: str | bool = True, 
         result: str = None
     ):
-        future = self.get_returns(ptype, period, start, stop)
+        future = self.get_returns(ptype, period, begin, end)
         
         if skip_nonperiod_day:
             factor = self._prepare_factor(factor, future.index, None, processor)
         else:
-            factor = self._prepare_factor(factor, start=start, stop=stop, processor=processor)
+            factor = self._prepare_factor(factor, start=begin, stop=end, processor=processor)
 
         inforcoef = factor.corrwith(future, axis=1, method=method).dropna()
         inforcoef.name = f"infocoef"
@@ -195,8 +195,8 @@ class Factor(forge.ParquetManager):
         factor: str | pd.DataFrame,
         *,
         period: int = 1,
-        start: str = None,
-        stop: str = None,
+        begin: str = None,
+        end: str = None,
         processor: list = None,
         ptype: str = "volume_weighted_price",
         ngroup: int = 5, 
@@ -206,12 +206,12 @@ class Factor(forge.ParquetManager):
         image: str | bool = True, 
         result: str = None
     ):
-        future = self.get_returns(ptype, period, start, stop)
+        future = self.get_returns(ptype, period, begin, end)
         
         if skip_nonperiod_day:
             factor = self._prepare_factor(factor, start=future.index, processor=processor)
         else:
-            factor = self._prepare_factor(factor, start=start, stop=stop, processor=processor)
+            factor = self._prepare_factor(factor, start=begin, stop=end, processor=processor)
         
         # ngroup test
         try:
@@ -282,8 +282,8 @@ class Factor(forge.ParquetManager):
         factor: str | pd.DataFrame,
         *,
         period: int = 1,
-        start: str = None,
-        stop: str = None,
+        begin: str = None,
+        end: str = None,
         ptype: str = "volume_weighted_price",
         processor: list = None,
         topk: int = 100, 
@@ -292,12 +292,12 @@ class Factor(forge.ParquetManager):
         image: str | bool = True, 
         result: str = None
     ):
-        future = self.get_returns(ptype, period, start, stop)
+        future = self.get_returns(ptype, period, begin, end)
 
         if skip_nonperiod_day:
             factor = self._prepare_factor(factor, start=future.index, processor=processor)
         else:
-            factor = self._prepare_factor(factor, start, stop, processor)
+            factor = self._prepare_factor(factor, begin, end, processor)
             
         topks = factor.rank(ascending=False, axis=1) < topk
         topks = factor.where(topks)

@@ -1,10 +1,19 @@
 import numpy as np
 import pandas as pd
+from .data_source import index_weights
 
 
 def zscore(df: pd.DataFrame):
     return df.sub(df.mean(axis=1), axis=0).div(df.std(axis=1), axis=0)
-    
+
+def wscore(df: pd.DataFrame):
+    weight = index_weights.read(
+        pivot="weight", index="date", columns="code",
+        date__in=df.index, index_code='000985.XSHG'
+    )
+    return (df.sub(np.sum(weight * df, axis=1),axis=0)
+            ).div(df.std(axis=1), axis=0)
+
 def minmax(df: pd.DataFrame):
     return df.sub(df.min(axis=1), axis=0).div(
         df.max(axis=1) - df.min(axis=1), axis=0)
