@@ -1,5 +1,5 @@
 from .data_source import (
-    quotes_day, quotes_min
+    quotes_day, quotes_min, index_weights
 )
 
 from .factor import Factor
