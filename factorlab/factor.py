@@ -137,6 +137,7 @@ class FactorManager(forge.ParquetManager):
             result = pd.concat([factor.loc[date], returns.loc[date]], axis=1)
         else:
             result = pd.concat([factor.iloc[date], returns.iloc[date]], axis=1)
+        result.columns = ["factor", "returns"]
         return result
     
     @staticmethod

@@ -14,7 +14,7 @@ def update_factor(
     trading_days = quotes_day.read(
         index="date", code="000001.XSHG", date__ge=begin, date__le=end
     ).index.sort_values()
-    data = factor.get(name=name, trading_days=trading_days, n_jobs=n_jobs)
+    data = factor.calc(name=name, trading_days=trading_days, n_jobs=n_jobs)
     data = data.stack().reset_index()
     data.columns = ["date", "code", "value"]
     data["name"] = name
@@ -23,9 +23,9 @@ def update_factor(
 
 if __name__ == "__main__":
     path = Path("data/price_volume")
-    begin = "2010-01-01"
+    begin = "2024-01-01"
     end = "2024-12-05"
-    name = "tail_weighted_price"
+    name = "smart_money_ratio"
     partition = "month"
     n_jobs = -1
     update_factor(
