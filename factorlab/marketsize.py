@@ -1,10 +1,10 @@
 import numpy as np
 import pandas as pd
 import statsmodels.api as sm
-from .factor import Factor
+from .factor import FactorManager
 
 
-class MarketSizeFactor(Factor):
+class MarketSizeFactor(FactorManager):
 
     def get_log_marketcap(self, date: str | pd.Timestamp) -> pd.Series:        
         shares = quotes_day.read("circulation_a", start=date, stop=date)

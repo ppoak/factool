@@ -1,10 +1,10 @@
 import numpy as np
 import pandas as pd
 import statsmodels.api as sm
-from .factor import Factor
+from .factor import FactorManager
 
 
-class LiquidityFactor(Factor):
+class LiquidityFactor(FactorManager):
 
     def get_turnover_month(self, date: str | pd.Timestamp) -> pd.Series:
         rollback = quotes_day.get_trading_days_rollback(date, 21)

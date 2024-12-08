@@ -1,6 +1,6 @@
 import numpy as np
 import pandas as pd
-from .data_source import index_weights
+from .factor import index_weights
 
 
 def zscore(df: pd.DataFrame):

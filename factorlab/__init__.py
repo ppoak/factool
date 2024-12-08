@@ -1,8 +1,11 @@
-from .data_source import (
-    quotes_day, quotes_min, index_weights
+from .factor import FactorManager
+from .factor import (
+    quotes_day,
+    quotes_min,
+    index_weights,
 )
 
-from .factor import Factor
+
 from .marketsize import MarketSizeFactor
 from .retdist import RetDistFactor
 from .price_volume import DeraPriceFactor, PriceVolumeCorr

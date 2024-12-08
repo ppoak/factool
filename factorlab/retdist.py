@@ -1,10 +1,10 @@
 import numpy as np
 import pandas as pd
 import statsmodels.api as sm
-from .factor import Factor
+from .factor import FactorManager
 
 
-class RetDistFactor(Factor):
+class RetDistFactor(FactorManager):
 
     def get_intraday_distribution(self, date: str) -> pd.DataFrame:
         data = quotes_min.read("close", start=date, stop=date + pd.Timedelta(days=1))

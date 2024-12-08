@@ -7,26 +7,45 @@ from pathlib import Path
 from joblib import Parallel, delayed
 
 
-class Factor(forge.ParquetManager):
+class FactorManager(forge.ParquetManager):
 
-    def __init__(self, path: str, partition: str = None):
-        super().__init__(path=path, index=["date", "code", "name"], partition=partition)
-        if self.partitions:
-            partition_sizes = np.array([partition.stat().st_size for partition in self.partitions])
-            min_partition = self.partitions[np.argmin(partition_sizes)]
-            columns = pd.read_parquet(min_partition).columns
-            if not pd.Index(["date", "code", "name"]).isin(columns).all():
-                raise ValueError("Factor must have columns: date, code, name")
-
+    def __init__(
+        self, 
+        path: str | Path, 
+        name_col: str = "name",
+        val_col: str = "value",
+        date_col: str = "date",
+        code_col: str = "code",
+        partition: str = None,
+    ):
+        super().__init__(path=path, index=[date_col, code_col, name_col], partition=partition)
+        if bool(name_col) != bool(val_col):
+            raise ValueError("Either both name_col and val_col are provided or neither is provided")
+        self.date_col = date_col
+        self.code_col = code_col
+        self.name_col = name_col
+        self.val_col = val_col
+    
     def read(
         self, 
+        name: str,
+        begin: pd.Timestamp | str = None,
+        end: pd.Timestamp | str = None,
         processor: list = None,
         **kwargs
-    ) -> pd.Series | pd.DataFrame:
+    ) -> pd.DataFrame:
         processor = processor or []
         if not isinstance(processor, list):
             processor = [processor]
         
+        if self.name_col:
+            kwargs.update({"pivot": self.val_col, self.name_col: name, "index": self.date_col, "columns": self.code_col})
+        else:
+            kwargs.update({"pivot": name, "index": self.date_col, "columns": self.code_col})
+        if begin is not None:
+            kwargs.update({f"{self.date_col}__ge": begin})
+        if end is not None:
+            kwargs.update({f"{self.date_col}__le": end})
         df = super().read(**kwargs)
         
         for proc in processor:
@@ -38,18 +57,20 @@ class Factor(forge.ParquetManager):
 
     def get_trading_days(
         self,
-        index_code: str = "000001.XSHG",
         begin: str | pd.Timestamp = None,
         end: str | pd.Timestamp = None,
+        persistence_code: str = "000001.XSHG",
     ):
         params = {
-            "code": index_code,
-            f"date__ge": pd.to_datetime(begin or "2000-01-01"),
-            f"date__le": pd.to_datetime(end or "now"),
-            "index": "date",
+            "index": self.date_col,
+            self.code_col: persistence_code,
         }
+        if begin is not None:
+            params[f"{self.date_col}__ge"] = pd.to_datetime(begin)
+        if end is not None:
+            params[f"{self.date_col}__le"] = pd.to_datetime(end)
         return super().read(**params).index.unique().sort_values()
-    
+
     def get_trading_days_rollback(
         self, 
         date: str | pd.Timestamp = None, 
@@ -65,155 +86,75 @@ class Factor(forge.ParquetManager):
             rollback = trading_days[min(len(trading_days) - 1, -rollback)]
         return rollback
     
-    def get_returns(
-        self, 
-        ptype: str,
+    @staticmethod
+    def _get_returns(
+        price: pd.DataFrame,
         period: int = 1, 
         lag: int = 1,
+        weight: pd.DataFrame = None,
+        feasible: pd.DataFrame = None,
+    ):
+        if weight is not None:
+            price = price.where(weight > 0)
+        if feasible is not None:
+            price = price.where(feasible)
+
+        if period > 0:
+            returns = price / price.shift(period) - 1
+        else:
+            returns = price.shift(-lag + period) / price.shift(-lag) - 1
+        returns = returns.replace([np.inf, -np.inf], np.nan).dropna(axis=0, how='all')
+
+        return returns.iloc[::abs(period)]
+    
+    def get_returns(
+        self,
+        name: str,
         begin: str | pd.Timestamp = None,
         end: str | pd.Timestamp = None,
-        skip_nonperiod_day: bool = False,
-        nonrealizable: pd.DataFrame = True,
-    ):
-        if end is not None:
-            end = self.get_trading_days_rollback(end, -period - 1)
-        price = self.read(
-            index="date", columns="code", pivot="value", 
-            name=ptype, date__ge=begin, date__le=end
-        )
-        price = price.where(~nonrealizable, other=np.nan)
-        if period > 0:
-            future = price / price.shift(period) - 1
-        else:
-            future = price.shift(-lag - period) / price.shift(-lag) - 1
-        future = future.dropna(axis=0, how='all')
-
-        if skip_nonperiod_day:
-            return future.iloc[::period].squeeze()
-        return future.squeeze()
-    
-    def _prepare_factor(
-        self, 
-        factor: str | pd.DataFrame | pd.Series,
-        start: str | pd.Timestamp = None,
-        stop: str | pd.Timestamp = None,
-        processor: list = None
-    ):
-        if isinstance(factor, pd.DataFrame):
-            factor = factor.loc[start:stop]
-        elif isinstance(factor, str):
-            factor = self.read(
-                index="date", columns="code", pivot="value",
-                name=factor, date__ge=start, date__le=stop
-            )
-        else:
-            ValueError("Invalid factor type")
-        
-        processor = processor or []
-        for proc in processor:
-            kwargs = {}
-            if isinstance(proc, tuple):
-                proc, kwargs = proc
-            factor = proc(factor, **kwargs)
-        
-        return factor
-    
-    def perform_crosssection(
-        self, 
-        factor: str | pd.DataFrame, 
-        *,
-        date: str | pd.Timestamp | pd.DataFrame | pd.Series = None,
-        processor: list = None,
-        period: int = -1,
-        ptype: str = "volume_weighted_price",
-        image: str | bool = True, 
-        result: str = None
-    ):
-        date = self.get_trading_days_rollback(date, 0)
-        future = self.get_returns(ptype, period, date, date)
-        factor = self._prepare_factor(factor, future.name, future.name, processor)
-        data = pd.concat([factor.squeeze(), future], axis=1, keys=["Factor", future.name])
-
-        if image is not None:
-            pd.plotting.scatter_matrix(data, figsize=(20, 20), hist_kwds={'bins': 100})
-            
-            plt.tight_layout()
-            if isinstance(image, (str, Path)):
-                plt.savefig(image)
-            else:
-                plt.show()
-                
-        if result is not None:
-            data.to_excel(result)
-        
-        return data.corr()
-
-    def perform_inforcoef(
-        self,
-        factor: str | pd.DataFrame,
-        *,
-        period: int = -1,
-        begin: str = None,
-        end: str = None,
-        ptype: str = "volume_weighted_price",
-        processor: list = None,
-        rolling: int = 20, 
-        method: str = 'pearson', 
-        skip_nonperiod_day: bool = False,
-        image: str | bool = True, 
-        result: str = None
-    ):
-        future = self.get_returns(ptype, period, begin, end)
-        
-        if skip_nonperiod_day:
-            factor = self._prepare_factor(factor, future.index, None, processor)
-        else:
-            factor = self._prepare_factor(factor, start=begin, stop=end, processor=processor)
-
-        inforcoef = factor.corrwith(future, axis=1, method=method).dropna()
-        inforcoef.name = f"infocoef"
-
-        if image is not None:
-            fig, ax = plt.subplots(1, 1, figsize=(20, 10))
-            inforcoef.plot(ax=ax, label='infor-coef', alpha=0.7, title='Information Coef')
-            inforcoef.rolling(rolling).mean().plot(linestyle='--', ax=ax, label='trend')
-            inforcoef.cumsum().plot(linestyle='-.', secondary_y=True, ax=ax, label='cumm-infor-coef')
-            pd.Series(np.zeros(inforcoef.shape[0]), index=inforcoef.index).plot(color='grey', ax=ax, alpha=0.5)
-            ax.legend()
-            fig.tight_layout()
-            if not isinstance(image, bool):
-                fig.savefig(image)
-            else:
-                fig.show()
-        
-        if result is not None:
-            inforcoef.to_excel(result)
-        return inforcoef
-    
-    def perform_grouping(
-        self, 
-        factor: str | pd.DataFrame,
-        *,
         period: int = 1,
-        begin: str = None,
-        end: str = None,
-        processor: list = None,
-        ptype: str = "volume_weighted_price",
-        ngroup: int = 5, 
-        commission: float = 0.002, 
-        skip_nonperiod_day: bool = True,
-        n_jobs: int = 1,
-        image: str | bool = True, 
-        result: str = None
+        lag: int = 1,
+        weight: pd.DataFrame = None,
+        feasible: pd.DataFrame = None,
+        skip_nonperiod_day: bool = False,
+    ) -> pd.DataFrame:
+        price = self.read(name=name, begin=begin, end=end)
+        return self._get_returns(
+            price=price, 
+            period=period, 
+            lag=lag, 
+            weight=weight, 
+            feasible=feasible, 
+        )
+    
+    @staticmethod
+    def _perform_crosssection(
+        factor: pd.Series,
+        returns: pd.Series,
+        date: str | int | pd.Timestamp = -1
     ):
-        future = self.get_returns(ptype, period, begin, end)
-        
-        if skip_nonperiod_day:
-            factor = self._prepare_factor(factor, start=future.index, processor=processor)
+        if isinstance(date, (str, pd.Timestamp)):
+            result = pd.concat([factor.loc[date], returns.loc[date]], axis=1)
         else:
-            factor = self._prepare_factor(factor, start=begin, stop=end, processor=processor)
-        
-        # ngroup test
+            result = pd.concat([factor.iloc[date], returns.iloc[date]], axis=1)
+        return result
+    
+    @staticmethod
+    def _perform_inforcoef(
+        factor: pd.DataFrame,
+        returns: pd.DataFrame,
+        method: str = "spearman",
+    ):
+        return factor.corrwith(returns, method=method, axis=1)
+    
+    @staticmethod
+    def _perform_grouping(
+        factor: pd.DataFrame,
+        returns: pd.DataFrame,
+        ngroup: int = 5,
+        commission: float = 0.0005,
+        n_jobs: int = 1,
+    ):
         try:
             groups = factor.apply(lambda x: pd.qcut(x, q=ngroup, labels=False), axis=1) + 1
         except:
@@ -227,20 +168,22 @@ class Factor(forge.ParquetManager):
             group = groups.where(groups == x)
             weight = (group / group).fillna(0)
             weight = weight.div(weight.sum(axis=1), axis=0)
-            _period = period if skip_nonperiod_day else 1
-            delta = weight.diff(periods=_period).fillna(0)
-            turnover = delta.abs().sum(axis=1) / 2 / _period
-            ret = (future * weight).sum(axis=1).shift(1) / _period
+            delta = weight.diff().fillna(0)
+            turnover = delta.abs().sum(axis=1) / 2
+            ret = (returns * weight).sum(axis=1).shift(1)
             ret -= commission * turnover
             ret = ret.fillna(0)
             val = (ret + 1).cumprod()
             return {
-                'evaluation': forge.Evaluator._evaluate(val),
+                'value': val,
                 'turnover': turnover,
+                'evaluation': forge.Evaluator._evaluate(val),
             }
             
         ngroup_result = Parallel(n_jobs=n_jobs, backend='loky')(
-            delayed(_grouping)(i) for i in range(1, ngroup + 1))
+            delayed(_grouping)(i) for i in range(1, ngroup + 1)
+        )
+
         ngroup_evaluation = pd.concat([res['evaluation'] for res in ngroup_result], 
             axis=1, keys=range(1, ngroup + 1)).add_prefix('group')
         ngroup_value = pd.concat([res['value'] for res in ngroup_result], 
@@ -251,93 +194,108 @@ class Factor(forge.ParquetManager):
         longshort_returns = ngroup_returns[f"group{ngroup}"] - ngroup_returns["group1"]
         longshort_value = (longshort_returns + 1).cumprod()
         longshort_evaluation = forge.Evaluator._evaluate(longshort_value)
-        
-        # naming
         longshort_evaluation.name = "longshort"
         longshort_value.name = "longshort value"
 
-        if image is not None:
-            fig, ax = plt.subplots(nrows=1, ncols=1, figsize=(20, 10))
-            longshort_value.plot(ax=ax, linestyle='--')
-            ngroup_value.plot(ax=ax, alpha=0.8)
-            ngroup_turnover.plot(ax=ax, secondary_y=True, alpha=0.2)
-            fig.tight_layout()
-            if isinstance(image, (str, Path)):
-                fig.savefig(image)
-            else:
-                fig.show()            
-        
-        if result is not None:
-            with pd.ExcelWriter(result) as writer:
-                ngroup_evaluation.to_excel(writer, sheet_name="ngroup_evaluation")
-                longshort_evaluation.to_excel(writer, sheet_name="longshort_evaluation")
-                ngroup_value.to_excel(writer, sheet_name="ngroup_value")
-                ngroup_turnover.to_excel(writer, sheet_name="ngroup_turnover")
-                longshort_value.to_excel(writer, sheet_name="longshort_value")
-        
-        return pd.concat([ngroup_evaluation, longshort_evaluation], axis=1)
-                
-    def perform_topk(
-        self, 
-        factor: str | pd.DataFrame,
-        *,
-        period: int = 1,
-        begin: str = None,
-        end: str = None,
-        ptype: str = "volume_weighted_price",
-        processor: list = None,
-        topk: int = 100, 
-        commission: float = 0.002, 
-        skip_nonperiod_day: bool = True,
-        image: str | bool = True, 
-        result: str = None
+        return {
+            "value": pd.concat([ngroup_value, longshort_value], axis=1),
+            "turnover": ngroup_turnover,
+            "evaluation": pd.concat([ngroup_evaluation, longshort_evaluation], axis=1),
+        }
+    
+    @staticmethod
+    def _perform_topk(
+        factor: pd.DataFrame,
+        returns: pd.DataFrame,
+        topk: int = 5,
+        commission: float = 0.0005,
     ):
-        future = self.get_returns(ptype, period, begin, end)
-
-        if skip_nonperiod_day:
-            factor = self._prepare_factor(factor, start=future.index, processor=processor)
-        else:
-            factor = self._prepare_factor(factor, begin, end, processor)
-            
         topks = factor.rank(ascending=False, axis=1) < topk
         topks = factor.where(topks)
         topks = (topks / topks).div(topks.count(axis=1), axis=0).fillna(0)
-        _period = period if skip_nonperiod_day else 1
-        turnover = topks.diff(periods=_period).fillna(0).abs().sum(axis=1) / 2 / _period
-        ret = (topks * future).sum(axis=1).shift(1).fillna(0) - turnover * commission
-        ret = ret.fillna(0) / _period
+        turnover = topks.diff().fillna(0).abs().sum(axis=1) / 2
+        ret = (topks * returns).sum(axis=1).shift(1).fillna(0) - turnover * commission
+        ret = ret.fillna(0)
         val = (1 + ret).cumprod()
         eva = forge.Evaluator._evaluate(val)
 
         val.name = "value"
         turnover.name = "turnover"
         eva.name = "evaluation"
+        
+        return {
+            "value": val,
+            "turnover": turnover,
+            "evaluation": eva,
+        }
+    
+    @staticmethod
+    def _align_factor_returns(
+        factor: pd.DataFrame,
+        returns: pd.DataFrame,
+    ):
+        factor = factor.loc[returns.index.intersection(factor.index)]
+        returns = returns.loc[factor.index]
+        return factor, returns
 
-        if image is not None:
-            fig, ax = plt.subplots(nrows=1, ncols=1, figsize=(20, 10))
-            val.plot(ax=ax, title="Top K")
-            turnover.plot(ax=ax, secondary_y=True, alpha=0.5)
-            fig.tight_layout()
-            if not isinstance(image, bool):
-                fig.savefig(image)
-            else:
-                fig.show()
+    def performance(
+        self,
+        name: str,
+        ptype: str,
+        begin: str | pd.Timestamp = None,
+        end: str | pd.Timestamp = None,
+        processor: list = None,
+        period: int = -1,
+        lag: int = 1,
+        weight: pd.DataFrame = None,
+        feasible: pd.DataFrame = None,
+        skip_nonperiod_day: bool = False,
+        crosssection_date: int | str | pd.Timestamp = -1,
+        method: str = "spearman",
+        ngroup: int = 5,
+        topk: int = 30,
+        commission: float = 0.0005,
+        n_jobs: int = 1,
+    ):
+        factor = self.read(name=name, begin=begin, end=end, processor=processor)
+        returns = self.get_returns(
+            name=ptype, 
+            begin=begin, 
+            end=end, 
+            period=period, 
+            lag=lag, 
+            weight=weight, 
+            feasible=feasible, 
+            skip_nonperiod_day=skip_nonperiod_day
+        )
+        factor, returns = self._align_factor_returns(factor=factor, returns=returns)
+        crosssection_result = self._perform_crosssection(factor=factor, returns=returns, date=crosssection_date)
+        inforcoef_result = self._perform_inforcoef(factor=factor, returns=returns, method=method)
+        grouping_result = self._perform_grouping(factor=factor, returns=returns, ngroup=ngroup, commission=commission, n_jobs=n_jobs)
+        topk_result = self._perform_topk(factor=factor, returns=returns, topk=topk, commission=commission)
 
-        if result is not None:
-            pd.concat([eva, val, turnover], axis=1).to_excel(result)
-
-        return eva
+        return {
+            "crosssection": crosssection_result,
+            "inforcoef": inforcoef_result,
+            "grouping": grouping_result,
+            "topk": topk_result,
+        }
 
     def upsert(self, data, partition=None, njobs=-1):
         if not pd.Index(self.index).isin(data.columns).all():
             raise ValueError("Malformed data, please check your input")
         return super().upsert(data, partition, njobs)
 
-    def get(self, name: str, trading_days: pd.DatetimeIndex, n_jobs: int = -1):
+    def calc(self, name: str, trading_days: pd.DatetimeIndex, n_jobs: int = -1):
         result = Parallel(n_jobs=n_jobs, backend='loky')(
-            delayed(getattr(self, "get_" + name))(date) for date in tqdm(list(trading_days))
+            delayed(getattr(self, "calc_" + name))(date) for date in tqdm(list(trading_days))
         )
         if isinstance(result[0], pd.Series):
             return pd.concat(result, axis=1).T.sort_index()
         elif isinstance(result[0], pd.DataFrame):
             return pd.concat(result, axis=0).sort_index()
+
+
+quotes_day = FactorManager(r"D:/Documents/DataBase/quotes_day", name_col=None, val_col=None)
+quotes_min = FactorManager(r"D:/Documents/DataBase/quotes_min", name_col=None, val_col=None)
+index_weights = FactorManager(r"D:/Documents/DataBase/index_weights", name_col=None, val_col=None)

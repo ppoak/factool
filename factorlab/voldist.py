@@ -1,9 +1,9 @@
 import numpy as np
 import pandas as pd
-from .factor import Factor
+from .factor import FactorManager
 
 
-class VolDistFactor(Factor):
+class VolDistFactor(FactorManager):
 
     def get_tail_volume_percent(self, date: pd.Timestamp):
         data = quotes_min.read("volume", start=date, stop=date + pd.Timedelta(days=1))

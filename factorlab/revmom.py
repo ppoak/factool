@@ -1,10 +1,10 @@
 import numpy as np
 import pandas as pd
 import statsmodels.api as sm
-from .factor import Factor
+from .factor import FactorManager
 
     
-class MomentumFactor(Factor):
+class MomentumFactor(FactorManager):
     def get_1week_ret(self, date: str):
         rollback = quotes_day.get_trading_days_rollback(date, 5)
         price = quotes_day.read("close", start=rollback, stop=date)

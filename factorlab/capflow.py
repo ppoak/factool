@@ -1,8 +1,8 @@
 import pandas as pd
-from .factor import Factor
+from .factor import FactorManager
 
 
-class CapFlowFactor(Factor):
+class CapFlowFactor(FactorManager):
 
     def get_stock_connect_stableinc(self, date: pd.Timestamp) -> pd.Series:
         rollback = quotes_day.get_trading_days_rollback(date, 20)

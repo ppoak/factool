@@ -1,10 +1,10 @@
 import numpy as np
 import pandas as pd
 import statsmodels.api as sm
-from .factor import Factor
+from .factor import FactorManager
 
 
-class VolatileFactor(Factor):
+class VolatileFactor(FactorManager):
 
     def get_information_distribution_uniformity(self, date: str) -> pd.Series:
         rollback = quotes_day.get_trading_days_rollback(date, 20)
