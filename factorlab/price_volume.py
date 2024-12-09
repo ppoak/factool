@@ -15,10 +15,10 @@ class DeraPriceFactor(FactorManager):
         price = quotes_min.read(
             name="close", begin=date, end=date + pd.Timedelta(days=1)
         )
-        price = quotes_min.read(
+        volume = quotes_min.read(
             name="volume", begin=date, end=date + pd.Timedelta(days=1)
         )
-        weight = price / price.sum()
+        weight = volume / volume.sum()
         res = (price * weight).sum()
         res.name = date
         return res
@@ -61,11 +61,6 @@ class DeraPriceFactor(FactorManager):
 
 
 class PriceVolumeCorr(FactorManager):
-
-    def __init__(self, path: str, partition: str = None):
-        super().__init__(path, partition)
-        if not self.partitions:
-            raise Exception("PriceVolumeCorr build on NONE-EMPTY factor firectory")
 
     def calc_smart_money_ratio(self, date: pd.Timestamp) -> pd.DataFrame:
         rollback = self.get_trading_days_rollback(date, 9)

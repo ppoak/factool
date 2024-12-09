@@ -154,7 +154,7 @@ class FactorManager(forge.ParquetManager):
         returns: pd.DataFrame,
         ngroup: int = 5,
         commission: float = 0.0005,
-        n_jobs: int = 1,
+        njobs: int = 1,
     ):
         try:
             groups = factor.apply(lambda x: pd.qcut(x, q=ngroup, labels=False), axis=1) + 1
@@ -181,7 +181,7 @@ class FactorManager(forge.ParquetManager):
                 'evaluation': forge.Evaluator._evaluate(val),
             }
             
-        ngroup_result = Parallel(n_jobs=n_jobs, backend='loky')(
+        ngroup_result = Parallel(n_jobs=njobs, backend='loky')(
             delayed(_grouping)(i) for i in range(1, ngroup + 1)
         )
 
@@ -256,7 +256,7 @@ class FactorManager(forge.ParquetManager):
         ngroup: int = 5,
         topk: int = 30,
         commission: float = 0.0005,
-        n_jobs: int = 1,
+        njobs: int = 1,
     ):
         factor = self.read(name=name, begin=begin, end=end, processor=processor)
         returns = self.get_returns(
@@ -272,7 +272,7 @@ class FactorManager(forge.ParquetManager):
         factor, returns = self._align_factor_returns(factor=factor, returns=returns)
         crosssection_result = self._perform_crosssection(factor=factor, returns=returns, date=crosssection_date)
         inforcoef_result = self._perform_inforcoef(factor=factor, returns=returns, method=method)
-        grouping_result = self._perform_grouping(factor=factor, returns=returns, ngroup=ngroup, commission=commission, n_jobs=n_jobs)
+        grouping_result = self._perform_grouping(factor=factor, returns=returns, ngroup=ngroup, commission=commission, njobs=njobs)
         topk_result = self._perform_topk(factor=factor, returns=returns, topk=topk, commission=commission)
 
         return {
@@ -287,8 +287,8 @@ class FactorManager(forge.ParquetManager):
             raise ValueError("Malformed data, please check your input")
         return super().upsert(data, partition, njobs)
 
-    def calc(self, name: str, trading_days: pd.DatetimeIndex, n_jobs: int = -1):
-        result = Parallel(n_jobs=n_jobs, backend='loky')(
+    def calc(self, name: str, trading_days: pd.DatetimeIndex, njobs: int = -1):
+        result = Parallel(n_jobs=njobs, backend='loky')(
             delayed(getattr(self, "calc_" + name))(date) for date in tqdm(list(trading_days))
         )
         if isinstance(result[0], pd.Series):
@@ -298,5 +298,5 @@ class FactorManager(forge.ParquetManager):
 
 
 quotes_day = FactorManager(r"D:/Documents/DataBase/quotes_day", name_col=None, val_col=None)
-quotes_min = FactorManager(r"D:/Documents/DataBase/quotes_min", name_col=None, val_col=None)
+quotes_min = FactorManager(r"D:/Documents/DataBase/quotes_min", name_col=None, val_col=None, date_col="datetime")
 index_weights = FactorManager(r"D:/Documents/DataBase/index_weights", name_col=None, val_col=None)
