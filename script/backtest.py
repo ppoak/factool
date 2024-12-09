@@ -5,12 +5,13 @@ from pathlib import Path
 from matplotlib.gridspec import GridSpec
 
 
-def load_factor_data(factor_name, ptype, data_path, period, ngroup, njobs, begin, end):
+def load_factor_data(factor_name, ptype, adjfactor, data_path, period, ngroup, njobs, begin, end):
     """Load factor data and return performance results."""
     factor = factorlab.FactorManager(data_path)
     test_results = factor.performance(
         factor_name,
         ptype=ptype,
+        adjfactor=adjfactor,
         period=period,
         begin=begin,
         end=end,
@@ -86,9 +87,9 @@ def create_plots(crosssection, inforcoef_df, grouping, topk, out_path):
     fig.savefig(out_path)
 
 
-def generate_factor_performance_report(factor_name, ptype, out_path, data_path, period, ngroup, njobs, begin, end):
+def generate_factor_performance_report(factor_name, ptype, adjfactor, out_path, data_path, period, ngroup, njobs, begin, end):
     """Main function to load factor data, generate plots, and save the report."""
-    test_results = load_factor_data(factor_name, ptype, data_path, period, ngroup, njobs, begin, end)
+    test_results = load_factor_data(factor_name, ptype, adjfactor, data_path, period, ngroup, njobs, begin, end)
 
     crosssection = test_results["crosssection"]
     inforcoef = test_results["inforcoef"]
@@ -122,9 +123,11 @@ if __name__ == "__main__":
     end = "2024-12-02"  # End date
 
     # Generate the report with the specified parameters
+    adjfactor = factorlab.quotes_day.read(name="adjfactor", begin=begin, end=end)
     generate_factor_performance_report(
         factor_name=factor_name,
         ptype=ptype,
+        adjfactor=adjfactor,
         out_path=out_path,
         data_path=data_path,
         period=period,

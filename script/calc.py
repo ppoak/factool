@@ -22,10 +22,10 @@ def calc_factor(
 if __name__ == "__main__":
     path = Path("data/price_volume")
     begin = "2024-01-01"
-    end = "2024-12-05"
-    name = "volume_weighted_price"
+    end = "2024-12-08"
+    name = "time_weighted_price"
     partition = "month"
-    njobs = -1
+    njobs = 18
     calc_factor(
         path=path,
         name=name,

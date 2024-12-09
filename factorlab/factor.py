@@ -112,6 +112,7 @@ class FactorManager(forge.ParquetManager):
         name: str,
         begin: str | pd.Timestamp = None,
         end: str | pd.Timestamp = None,
+        adjfactor: pd.DataFrame = None,
         period: int = 1,
         lag: int = 1,
         weight: pd.DataFrame = None,
@@ -119,6 +120,8 @@ class FactorManager(forge.ParquetManager):
         skip_nonperiod_day: bool = False,
     ) -> pd.DataFrame:
         price = self.read(name=name, begin=begin, end=end)
+        if adjfactor is not None:
+            price = price * adjfactor
         return self._get_returns(
             price=price, 
             period=period, 
@@ -244,6 +247,7 @@ class FactorManager(forge.ParquetManager):
         name: str,
         ptype: str,
         begin: str | pd.Timestamp = None,
+        adjfactor: pd.DataFrame = None,
         end: str | pd.Timestamp = None,
         processor: list = None,
         period: int = -1,
@@ -263,6 +267,7 @@ class FactorManager(forge.ParquetManager):
             name=ptype, 
             begin=begin, 
             end=end, 
+            adjfactor=adjfactor,
             period=period, 
             lag=lag, 
             weight=weight, 
