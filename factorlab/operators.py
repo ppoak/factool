@@ -1,7 +1,52 @@
 import numpy as np
 import pandas as pd
-from .factor import index_weights
+from .base import index_weights
 
+
+def add(dfa: pd.DataFrame, dfb: pd.DataFrame, fillna: bool | float = False):
+    if fillna:
+        return dfa.add(dfb, fill_value=fillna)
+    return dfa + dfb
+
+def sub(dfa: pd.DataFrame, dfb: pd.DataFrame, fillna: bool | float = False):
+    if fillna:
+        return dfa.sub(dfb, fill_value=fillna)
+    return dfa - dfb
+
+def mul(dfa: pd.DataFrame, dfb: pd.DataFrame, fillna: bool | float = False):
+    if fillna:
+        return dfa.mul(dfb, fill_value=fillna)
+    return dfa * dfb
+
+def div(dfa: pd.DataFrame, dfb: pd.DataFrame, fillna: bool | float = False):
+    if fillna:
+        return dfa.div(dfb, fill_value=fillna)
+    return dfa / dfb
+
+def mask(dfa: pd.DataFrame, dfb: pd.DataFrame, dfc: pd.DataFrame | float = np.nan):
+    return dfa.mask(dfb, other=np.nan)
+
+def where(dfa: pd.DataFrame, dfb: pd.DataFrame, dfc: pd.DataFrame | float = np.nan):
+    return dfa.where(dfb, other=dfc)
+
+def shift(df: pd.DataFrame, n: int):
+    return df.shift(n)
+
+def rsum(df: pd.DataFrame, n: int, axis: int = 0):
+    if n < 0:
+        return df.expanding(min_periods=-n, axis=axis).sum()
+    elif n > 0 and n < 1:
+        return df.ewm(alpha=n, axis=axis).sum()
+    return df.rolling(min_periods=n, axis=axis).sum()
+
+def corr(dfa: pd.DataFrame, dfb: pd.DataFrame, axis: int = 0):
+    return df.corrwith(dfb, axis=axis)
+
+def rank(df: pd.DataFrame, ascending: bool = False, axis: int = 0):
+    return df.rank(axis=axis, ascending=ascending)
+
+def group(df: pd.DataFrame, n: int, axis: int = 0):
+    return df.apply(lambda x: pd.qcut(x, q=n, labels=False), axis=1) + 1
 
 def zscore(df: pd.DataFrame):
     return df.sub(df.mean(axis=1), axis=0).div(df.std(axis=1), axis=0)
@@ -79,6 +124,9 @@ def log(df: pd.DataFrame):
 
 def sqrt(df: pd.DataFrame):
     return np.sqrt(df.sub(df.min(axis=1), axis=0))
+
+def mean(df: pd.DataFrame, axis: int = 0):
+    return df.mean(axis=axis)
 
 def tsmean(df: pd.DataFrame, n: int = 20):
     return df.rolling(n).mean()

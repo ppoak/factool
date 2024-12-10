@@ -53,7 +53,7 @@ class FactorManager(forge.ParquetManager):
             if isinstance(proc, tuple):
                 proc, kwargs = proc
             df = proc(df, **kwargs)
-        return df.dropna(axis=0, how='all')
+        return df.sort_index().dropna(axis=0, how='all')
 
     def get_trading_days(
         self,
@@ -89,8 +89,8 @@ class FactorManager(forge.ParquetManager):
     @staticmethod
     def _get_returns(
         price: pd.DataFrame,
-        period: int = 1, 
-        lag: int = 1,
+        period: int = -1, 
+        lag: int = -1,
         weight: pd.DataFrame = None,
         feasible: pd.DataFrame = None,
     ):
@@ -100,12 +100,12 @@ class FactorManager(forge.ParquetManager):
             price = price.where(feasible)
 
         if period > 0:
-            returns = price / price.shift(period) - 1
+            returns = price.shift(lag) / price.shift(lag + period) - 1
         else:
-            returns = price.shift(-lag + period) / price.shift(-lag) - 1
+            returns = price.shift(lag + period) / price.shift(lag) - 1
         returns = returns.replace([np.inf, -np.inf], np.nan).dropna(axis=0, how='all')
 
-        return returns.iloc[::abs(period)]
+        return returns
     
     def get_returns(
         self,
@@ -113,11 +113,10 @@ class FactorManager(forge.ParquetManager):
         begin: str | pd.Timestamp = None,
         end: str | pd.Timestamp = None,
         adjfactor: pd.DataFrame = None,
-        period: int = 1,
-        lag: int = 1,
+        period: int = -1,
+        lag: int = -1,
         weight: pd.DataFrame = None,
         feasible: pd.DataFrame = None,
-        skip_nonperiod_day: bool = False,
     ) -> pd.DataFrame:
         price = self.read(name=name, begin=begin, end=end)
         if adjfactor is not None:
@@ -237,9 +236,13 @@ class FactorManager(forge.ParquetManager):
     def _align_factor_returns(
         factor: pd.DataFrame,
         returns: pd.DataFrame,
+        period: int,
+        lag: int,
     ):
-        factor = factor.loc[returns.index.intersection(factor.index)]
-        returns = returns.loc[factor.index]
+        factor = factor.iloc[::(abs(period) + abs(lag))]
+        common = factor.index.intersection(returns.index)
+        factor = factor.loc[common]
+        returns = returns.loc[common]
         return factor, returns
 
     def performance(
@@ -251,10 +254,9 @@ class FactorManager(forge.ParquetManager):
         end: str | pd.Timestamp = None,
         processor: list = None,
         period: int = -1,
-        lag: int = 1,
+        lag: int = -1,
         weight: pd.DataFrame = None,
         feasible: pd.DataFrame = None,
-        skip_nonperiod_day: bool = False,
         crosssection_date: int | str | pd.Timestamp = -1,
         method: str = "spearman",
         ngroup: int = 5,
@@ -272,13 +274,12 @@ class FactorManager(forge.ParquetManager):
             lag=lag, 
             weight=weight, 
             feasible=feasible, 
-            skip_nonperiod_day=skip_nonperiod_day
         )
-        factor, returns = self._align_factor_returns(factor=factor, returns=returns)
+        factor, returns = self._align_factor_returns(factor=factor, returns=returns, period=period, lag=lag)
         crosssection_result = self._perform_crosssection(factor=factor, returns=returns, date=crosssection_date)
         inforcoef_result = self._perform_inforcoef(factor=factor, returns=returns, method=method)
-        grouping_result = self._perform_grouping(factor=factor, returns=returns, ngroup=ngroup, commission=commission, njobs=njobs)
-        topk_result = self._perform_topk(factor=factor, returns=returns, topk=topk, commission=commission)
+        grouping_result = self._perform_grouping(factor=np.sign(inforcoef_result.mean()) * factor, returns=returns, ngroup=ngroup, commission=commission, njobs=njobs)
+        topk_result = self._perform_topk(factor=np.sign(inforcoef_result.mean()) * factor, returns=returns, topk=topk, commission=commission)
 
         return {
             "crosssection": crosssection_result,
@@ -304,4 +305,4 @@ class FactorManager(forge.ParquetManager):
 
 quotes_day = FactorManager(r"D:/Documents/DataBase/quotes_day", name_col=None, val_col=None)
 quotes_min = FactorManager(r"D:/Documents/DataBase/quotes_min", name_col=None, val_col=None, date_col="datetime")
-index_weights = FactorManager(r"D:/Documents/DataBase/index_weights", name_col=None, val_col=None)
+index_weights = FactorManager(r"D:/Documents/DataBase/index_weights", name_col="index_code", val_col="weight")

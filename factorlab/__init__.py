@@ -16,9 +16,10 @@ from .evaluation import EvaluationFactor
 from .revmom import MomentumFactor
 from .liquidity import LiquidityFactor
 
-from .processors import (
+from .operators import (
     zscore, minmax,
     madoutlier, stdoutlier, iqroutlier,
+    shift, corr, rank, group, where, mean,
     fillna,
     log, sqrt, tsmean,
 )
