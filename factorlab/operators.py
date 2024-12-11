@@ -40,7 +40,7 @@ def rsum(df: pd.DataFrame, n: int, axis: int = 0):
     return df.rolling(min_periods=n, axis=axis).sum()
 
 def corr(dfa: pd.DataFrame, dfb: pd.DataFrame, axis: int = 0):
-    return df.corrwith(dfb, axis=axis)
+    return dfa.corrwith(dfb, axis=axis)
 
 def rank(df: pd.DataFrame, ascending: bool = False, axis: int = 0):
     return df.rank(axis=axis, ascending=ascending)
@@ -118,6 +118,30 @@ def fillna(
     val: int | str = 0,
 ):
     return df.fillna(val)
+
+def weightify(df: pd.DataFrame):
+    return df.div(df.sum(axis=1), axis=0)
+
+def diff(df: pd.DataFrame, n: int = 1, axis: int = 0, nofirst: bool = False):
+    if nofirst:
+        df = df.copy()
+        first = df.iloc[0].copy()
+        df = df.diff(n, axis=axis)
+        df.iloc[0] = first
+        return df
+    return df.diff(n, axis=axis)
+
+def absolute(df: pd.DataFrame):
+    return df.abs()
+
+def sum(df: pd.DataFrame, axis: int = 0):
+    return df.sum(axis=axis)
+
+def cumsum(df: pd.DataFrame, axis: int = 0):
+    return df.cumsum(axis=axis)
+
+def cumprod(df: pd.DataFrame, axis: int = 0):
+    return df.cumprod(axis=axis)
 
 def log(df: pd.DataFrame):
     return np.log((df + 1e-6).sub(df.min(axis=1), axis=0))

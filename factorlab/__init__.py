@@ -1,5 +1,5 @@
-from .factor import FactorManager
-from .factor import (
+from .base import FactorManager
+from .base import (
     quotes_day,
     quotes_min,
     index_weights,
@@ -18,10 +18,12 @@ from .liquidity import LiquidityFactor
 
 from .operators import (
     zscore, minmax,
+    add, sub, mul, div,
     madoutlier, stdoutlier, iqroutlier,
     shift, corr, rank, group, where, mean,
-    fillna,
-    log, sqrt, tsmean,
+    weightify, diff, absolute,
+    sum, cumsum, cumprod,
+    fillna, log, sqrt, tsmean,
 )
 
 

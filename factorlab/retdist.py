@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 import statsmodels.api as sm
-from .factor import FactorManager
+from .base import FactorManager
 
 
 class RetDistFactor(FactorManager):

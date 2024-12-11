@@ -1,8 +1,8 @@
 import numpy as np
 import pandas as pd
 import statsmodels.api as sm
-from .processors import wscore
-from .factor import (
+from .operators import wscore
+from .base import (
     FactorManager, 
     quotes_day, 
     quotes_min

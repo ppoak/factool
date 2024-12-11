@@ -1,5 +1,5 @@
 import pandas as pd
-from .factor import FactorManager
+from .base import FactorManager
 
 
 class CapFlowFactor(FactorManager):
