@@ -7,66 +7,12 @@ from pathlib import Path
 from matplotlib.gridspec import GridSpec
 
 
-def backtest_factor(
-    factor_data: pd.DataFrame,
-    return_data: pd.DataFrame,
-    output: str,
-    period: int = 5,
-    ngroup: int = 5,
-    topk: int = 5,
-    commission: float = 0.0001,
+def generate_plot(
+    crosssection: pd.DataFrame, 
+    inforcoef: pd.DataFrame, 
+    val: pd.DataFrame, 
+    output: Path
 ):
-    date = return_data.dropna(how='all', axis=0).index.intersection(factor_data.dropna(how='all', axis=0).index)[-1]
-    return_data = return_data / period
-    
-    crosssection = pd.concat([factor_data.loc[date], return_data.loc[date]], axis=1, keys=["Factors", "Returns"])
-    inforcoef = factorlab.corr(factor_data, return_data, axis=1)
-    direction = np.sign(inforcoef.mean())
-    inforcoef = pd.DataFrame({
-        "inforcoef": inforcoef,
-        "rolling_mean": inforcoef.rolling(window=5).mean(),
-        "cumulative": inforcoef.cumsum()
-    })
-
-    factor_data = factor_data * direction
-
-    group = factorlab.group(factor_data, n=ngroup, axis=0)
-    groupeva = []
-    groupval = []
-    groupret = []
-    for i in range(1, ngroup + 1):
-        groupi = group == i
-        delta = factorlab.diff(factorlab.weightify(groupi.astype("int")))
-        turnover = factorlab.sum(factorlab.absolute(delta), axis=1) / 2
-        commission = turnover * commission / period
-        ret = factorlab.fillna(factorlab.shift((factorlab.mean(factorlab.where(return_data, groupi, np.nan), axis=1)), 1), 0)
-        val = factorlab.cumprod(ret - commission + 1)
-        eva = forge.Evaluator._evaluate(val)
-        groupret.append(ret)
-        groupeva.append(eva)
-        groupval.append(val)
-    
-    longshortret = groupret[-1] - groupret[0]
-    longshortval = factorlab.cumprod(longshortret + 1)
-    longshorteva = forge.Evaluator._evaluate(longshortval)
-
-    groupval = pd.concat(groupval + [longshortval], axis=1, keys=[f"Group{i}" for i in range(1, ngroup + 1)] + ["LongShort"])
-    groupeva = pd.concat(groupeva + [longshorteva], axis=1, keys=[f"Group{i}" for i in range(1, ngroup + 1)] + ["LongShort"])
-
-    rank = factorlab.rank(factor_data, ascending=False, axis=1)
-    toprank = rank < (topk + 1)
-    delta = factorlab.diff(factorlab.weightify(toprank.astype("int")))
-    turnover = factorlab.sum(factorlab.absolute(delta), axis=1) / 2
-    commission = turnover * commission / period
-    topkret = factorlab.fillna(factorlab.shift(factorlab.mean(factorlab.where(return_data, toprank, np.nan), axis=1), n=1), val=0)
-    topkval = factorlab.cumprod(topkret - commission + 1)
-    topkval.name = "Topk"
-    topkeva = forge.Evaluator._evaluate(topkval)
-    topkeva.name = "Topk"
-
-    val = pd.concat([groupval, topkval], axis=1)
-    eva = pd.concat([groupeva, topkeva], axis=1)
-    
     fig = plt.figure(figsize=(20, 16))
     gs = GridSpec(3, 4, figure=fig)
 
@@ -139,6 +85,69 @@ def backtest_factor(
     fig.savefig(out_path)
 
 
+def backtest_factor(
+    factor_data: pd.DataFrame,
+    return_data: pd.DataFrame,
+    output: str,
+    period: int = 5,
+    ngroup: int = 5,
+    topk: int = 5,
+    commission: float = 0.0001,
+):
+    date = return_data.dropna(how='all', axis=0).index.intersection(factor_data.dropna(how='all', axis=0).index)[-1]
+    return_data = return_data / period
+    
+    crosssection = pd.concat([factor_data.loc[date], return_data.loc[date]], axis=1, keys=["Factors", "Returns"])
+    inforcoef = factorlab.corr(factor_data, return_data, axis=1)
+    direction = np.sign(inforcoef.mean())
+    inforcoef = pd.DataFrame({
+        "inforcoef": inforcoef,
+        "rolling_mean": inforcoef.rolling(window=5).mean(),
+        "cumulative": inforcoef.cumsum()
+    })
+
+    factor_data = factor_data * direction
+
+    group = factorlab.group(factor_data, n=ngroup, axis=0)
+    groupeva = []
+    groupval = []
+    groupret = []
+    for i in range(1, ngroup + 1):
+        groupi = group == i
+        delta = factorlab.diff(factorlab.weightify(groupi.astype("int")))
+        turnover = factorlab.sum(factorlab.absolute(delta), axis=1) / 2
+        commission = turnover * commission / period
+        ret = factorlab.fillna(factorlab.shift((factorlab.mean(factorlab.where(return_data, groupi, np.nan), axis=1)), 1), 0)
+        val = factorlab.cumprod(ret - commission + 1)
+        eva = forge.Evaluator._evaluate(val)
+        groupret.append(ret)
+        groupeva.append(eva)
+        groupval.append(val)
+    
+    longshortret = groupret[-1] - groupret[0]
+    longshortval = factorlab.cumprod(longshortret + 1)
+    longshorteva = forge.Evaluator._evaluate(longshortval)
+
+    groupval = pd.concat(groupval + [longshortval], axis=1, keys=[f"Group{i}" for i in range(1, ngroup + 1)] + ["LongShort"])
+    groupeva = pd.concat(groupeva + [longshorteva], axis=1, keys=[f"Group{i}" for i in range(1, ngroup + 1)] + ["LongShort"])
+
+    rank = factorlab.rank(factor_data, ascending=False, axis=1)
+    toprank = rank < (topk + 1)
+    delta = factorlab.diff(factorlab.weightify(toprank.astype("int")))
+    turnover = factorlab.sum(factorlab.absolute(delta), axis=1) / 2
+    commission = turnover * commission / period
+    topkret = factorlab.fillna(factorlab.shift(factorlab.mean(factorlab.where(return_data, toprank, np.nan), axis=1), n=1), val=0)
+    topkval = factorlab.cumprod(topkret - commission + 1)
+    topkval.name = "Topk"
+    topkeva = forge.Evaluator._evaluate(topkval)
+    topkeva.name = "Topk"
+
+    val = pd.concat([groupval, topkval], axis=1)
+    eva = pd.concat([groupeva, topkeva], axis=1)
+    
+    generate_plot(crosssection, inforcoef, val, output)
+    return eva
+
 if __name__ == "__main__":
     # User-configurable parameters for the report generation
 
@@ -176,7 +185,7 @@ if __name__ == "__main__":
     return_data = factorlab.where(return_data, weight > 0, np.nan)
     factor_data = factorlab.where(factor_data, weight > 0, np.nan)
     
-    backtest_factor(
+    evaluation = backtest_factor(
         factor_data=factor_data,
         return_data=return_data,
         output=out_path,
@@ -185,3 +194,4 @@ if __name__ == "__main__":
         topk=topk,
         commission=commission,
     )
+    print(evaluation)
