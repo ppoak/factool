@@ -12,32 +12,22 @@ from .base import (
 class DeraPriceFactor(FactorManager):
 
     def calc_volume_weighted_price(self, date: pd.Timestamp):
-        price = quotes_min.read(
-            name="close", begin=date, end=date + pd.Timedelta(days=1)
-        )
-        volume = quotes_min.read(
-            name="volume", begin=date, end=date + pd.Timedelta(days=1)
-        )
+        price = quotes_min.read(name="close", begin=date, end=date + pd.Timedelta(days=1))
+        volume = quotes_min.read(name="volume", begin=date, end=date + pd.Timedelta(days=1))
         weight = volume / volume.sum()
         res = (price * weight).sum()
         res.name = date
         return res
     
     def calc_time_weighted_price(self, date: pd.Timestamp):
-        price = quotes_min.read(
-            name="close", begin=date, end=date + pd.Timedelta(days=1)
-        )
+        price = quotes_min.read(name="close", begin=date, end=date + pd.Timedelta(days=1))
         res = price.mean()
         res.name = date
         return res
     
     def calc_tail_weighted_price(self, date: pd.Timestamp):
-        price = quotes_min.read(
-            name="close", begin=date, end=date + pd.Timedelta(days=1)
-        )
-        volume = quotes_min.read(
-            name="volume", begin=date, end=date + pd.Timedelta(days=1)
-        )
+        price = quotes_min.read(name="close", begin=date, end=date + pd.Timedelta(days=1))
+        volume = quotes_min.read(name="volume", begin=date, end=date + pd.Timedelta(days=1))
         price = price.between_time("14:30", "15:00")
         volume = volume.between_time("14:30", "15:00")
         weight = volume / volume.sum()
@@ -46,12 +36,8 @@ class DeraPriceFactor(FactorManager):
         return res
 
     def calc_head_weighted_price(self, date: pd.Timestamp):
-        price = quotes_min.read(
-            name="close", begin=date, end=date + pd.Timedelta(days=1)
-        )
-        volume = quotes_min.read(
-            name="volume", begin=date, end=date + pd.Timedelta(days=1)
-        )
+        price = quotes_min.read(name="close", begin=date, end=date + pd.Timedelta(days=1))
+        volume = quotes_min.read(name="volume", begin=date, end=date + pd.Timedelta(days=1))
         price = price.between_time("09:30", "10:00")
         volume = volume.between_time("09:30", "10:00")
         weight = volume / volume.sum()
@@ -64,13 +50,9 @@ class PriceVolumeCorr(FactorManager):
 
     def calc_smart_money_ratio(self, date: pd.Timestamp) -> pd.DataFrame:
         rollback = self.get_trading_days_rollback(date, 9)
-        price = quotes_min.read(
-            name="close", begin=date, end=date + pd.Timedelta(days=1)
-        )
+        price = quotes_min.read(name="close", begin=date, end=date + pd.Timedelta(days=1))
         ret = price.pct_change(fill_method=None).abs()
-        volume = quotes_min.read(
-            name="volume", begin=date, end=date + pd.Timedelta(days=1)
-        )
+        volume = quotes_min.read(name="volume", begin=date, end=date + pd.Timedelta(days=1))
         retvol = ret / (volume ** 0.25)
         rank = retvol.rank(axis=0, ascending=False)
         rank = rank.le(retvol.count() // 5, axis=1)
@@ -80,48 +62,29 @@ class PriceVolumeCorr(FactorManager):
         return res
 
     def calc_price_volume_corr(self, date: pd.Timestamp) -> pd.DataFrame:
-        price = quotes_min.read(
-            name="close", begin=date, end=date + pd.Timedelta(days=1)
-        )
-        volume = quotes_min.read(
-            name="volume", begin=date, end=date + pd.Timedelta(days=1)
-        )
+        price = quotes_min.read(name="close", begin=date, end=date + pd.Timedelta(days=1))
+        volume = quotes_min.read(name="volume", begin=date, end=date + pd.Timedelta(days=1))
         res = price.corrwith(volume, axis=0).replace([np.inf, -np.inf], np.nan)
         res.name = date
         return res
 
     def calc_average_relative_price_percent(self, date: pd.Timestamp) -> pd.DataFrame:
-        high = quotes_min.read(
-            name="high", begin=date, end=date + pd.Timedelta(days=1)
-        )
-        low = quotes_min.read(
-            name="low", begin=date, end=date + pd.Timedelta(days=1)
-        )
-        close = quotes_min.read(
-            name="close", begin=date, end=date + pd.Timedelta(days=1)
-        )
-        open_ = quotes_min.read(
-            name="open", begin=date, end=date + pd.Timedelta(days=1)
-        )
-        twap = (high + low + open_ + close) / 4
+        high = quotes_min.read(name="high", begin=date, end=date + pd.Timedelta(days=1))
+        low = quotes_min.read(name="low", begin=date, end=date + pd.Timedelta(days=1))
+        close = quotes_min.read(name="close", begin=date, end=date + pd.Timedelta(days=1))
+        open_ = quotes_min.read(name="open", begin=date, end=date + pd.Timedelta(days=1))
+        twap = (high + low + open_ + close).mean()
         high = high.max()
         low = low.min()
-        res = twap.sub(low, axis=0).div(high.sub(low, axis=0))
+        res = ((twap - low) / (high - low)).replace([np.inf, -np.inf], np.nan)
         res.name = date
         return res
     
     def calc_compound_volume_first(self, date: pd.Timestamp) -> pd.Series:
         rollback = quotes_day.get_trading_days_rollback(date, 21)
-        diff_price = quotes_day.read(
-            pivot="close", index="date", columns="code",
-            date__ge=rollback, date__le=date
-        ).diff(1).iloc[1:].tail(20)
-        diff_volume = quotes_day.read(
-            pivot="close", index="date", columns="code",
-            date__ge=rollback, date__le=date
-        ).diff(1).iloc[1:].head(20)
+        diff_price = quotes_day.read("close", begin=rollback, end=date).diff(1).iloc[-20:]
+        diff_volume = quotes_day.read("volume", begin=rollback, end=date).diff(1).iloc[-20:]
         
-        diff_volume.index = diff_price.index
         corr = diff_price.corrwith(diff_volume, axis=0)
         corr.name = date
         corr = wscore(corr.to_frame().T).loc[date]

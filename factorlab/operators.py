@@ -39,6 +39,13 @@ def rsum(df: pd.DataFrame, n: int, axis: int = 0):
         return df.ewm(alpha=n, axis=axis).sum()
     return df.rolling(min_periods=n, axis=axis).sum()
 
+def rmean(df: pd.DataFrame, n: int, axis: int = 0):
+    if n < 0:
+        return df.expanding(min_periods=-n, axis=axis).mean()
+    elif n > 0 and n < 1:
+        return df.ewm(alpha=n, axis=axis).mean()
+    return df.rolling(min_periods=n, axis=axis).mean()
+
 def corr(dfa: pd.DataFrame, dfb: pd.DataFrame, axis: int = 0):
     return dfa.corrwith(dfb, axis=axis)
 
@@ -52,10 +59,7 @@ def zscore(df: pd.DataFrame):
     return df.sub(df.mean(axis=1), axis=0).div(df.std(axis=1), axis=0)
 
 def wscore(df: pd.DataFrame):
-    weight = index_weights.read(
-        pivot="weight", index="date", columns="code",
-        date__in=df.index, index_code='000985.XSHG'
-    )
+    weight = index_weights.read("weight", date__in=df.index)
     return (df.sub(np.sum(weight * df, axis=1),axis=0)
             ).div(df.std(axis=1), axis=0)
 
@@ -151,6 +155,3 @@ def sqrt(df: pd.DataFrame):
 
 def mean(df: pd.DataFrame, axis: int = 0):
     return df.mean(axis=axis)
-
-def tsmean(df: pd.DataFrame, n: int = 20):
-    return df.rolling(n).mean()

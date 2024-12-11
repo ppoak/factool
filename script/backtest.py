@@ -18,9 +18,9 @@ def generate_plot(
 
     # Plot factor histogram
     ax_hist_factor = fig.add_subplot(gs[0, 0])
-    ax_hist_factor.hist(crosssection["Factors"].dropna(), bins=50, alpha=0.7, color='blue', edgecolor='black')
-    ax_hist_factor.set_title("Factor Histogram")
-    ax_hist_factor.set_xlabel("Factor Value")
+    ax_hist_factor.hist(crosssection["Returns"].dropna(), bins=50, alpha=0.7, color='blue', edgecolor='black', orientation='horizontal')
+    ax_hist_factor.set_title("Returns Histogram")
+    ax_hist_factor.set_xlabel("Returns Value")
     ax_hist_factor.set_ylabel("Frequency")
 
     # Plot factor vs returns scatter plot
@@ -30,15 +30,8 @@ def generate_plot(
     ax_scatter.set_xlabel("Factor Value")
     ax_scatter.set_ylabel("Returns")
 
-    # Plot returns histogram
-    ax_hist_returns = fig.add_subplot(gs[1, 0])
-    ax_hist_returns.hist(crosssection["Returns"].dropna(), bins=50, alpha=0.7, color='orange', edgecolor='black')
-    ax_hist_returns.set_title("Returns Histogram")
-    ax_hist_returns.set_xlabel("Returns")
-    ax_hist_returns.set_ylabel("Frequency")
-
     # Empty subplot (for table)
-    ax_blank = fig.add_subplot(gs[1, 1])
+    ax_blank = fig.add_subplot(gs[1, 0])
     ax_blank.axis('off')
 
     # Sort crosssection by factor descending, take top 10 and bottom 10
@@ -62,6 +55,13 @@ def generate_plot(
     table.auto_set_font_size(False)
     table.set_fontsize(10)
     table.scale(1, 1.2)
+
+    # Plot returns histogram
+    ax_hist_returns = fig.add_subplot(gs[1, 1])
+    ax_hist_returns.hist(crosssection["Factors"].dropna(), bins=50, alpha=0.7, color='orange', edgecolor='black')
+    ax_hist_returns.set_title("Factors Histogram")
+    ax_hist_returns.set_xlabel("Factors")
+    ax_hist_returns.set_ylabel("Frequency")
 
     # Plot inforcoef with rolling mean and cumulative
     ax_inforcoef = fig.add_subplot(gs[0:2, 2:])
@@ -151,10 +151,11 @@ def backtest_factor(
 if __name__ == "__main__":
     # User-configurable parameters for the report generation
 
-    factor_name = "smart_money_ratio"  # The factor you want to analyze
+    factor_name = "average_relative_price_percent"  # The factor you want to analyze
     factor_path = "data/price_volume"  # Path to the data folder (default is "data/price_volume")
     ptype = "open"
     out_path = f"out/report_{factor_name}.png"  # Output file path for the report
+    pool_code = "000985.XSHG"
 
     # Performance settings
     period = 5  # Period for the performance calculation (e.g., -5 for 5 periods)
@@ -169,16 +170,24 @@ if __name__ == "__main__":
 
     # Generate the report with the specified parameters
     factor_data = factorlab.Factor(factor_path).read(factor_name, begin=begin, end=end)
+    factor_data = factorlab.zscore(factorlab.stdoutlier(factor_data, 3))
     
     price_data = factorlab.quotes_day.read(ptype, begin=begin, end=end)
     adjfactor = factorlab.quotes_day.read(name="adjfactor", begin=begin, end=end)
     price_data = factorlab.mul(price_data, adjfactor)
     
-    weight = factorlab.index_weights.read("000985.XSHG", begin=begin, end=end)
+    if pool_code is not None:
+        weight = factorlab.index_weights.read(pool_code, begin=begin, end=end)
+    else:
+        weight = pd.DataFrame(np.ones_like(factor_data), index=factor_data.index, columns=factor_data.columns).astype("bool")
 
     st = factorlab.quotes_day.read("st", begin=begin, end=end).astype("bool")
     suspended = factorlab.quotes_day.read("suspended", begin=begin, end=end).astype("bool")
-    feasible = ~st & ~suspended
+    limit_up = factorlab.quotes_day.read("limit_up", begin=begin, end=end)
+    limit_down = factorlab.quotes_day.read("limit_down", begin=begin, end=end)
+    high = factorlab.quotes_day.read("high", begin=begin, end=end)
+    low = factorlab.quotes_day.read("low", begin=begin, end=end)
+    feasible = ~st & ~suspended & (high < limit_up) & (low > limit_down)
     
     return_data = factorlab.shift(price_data, -1 - period) / factorlab.shift(price_data, -1) - 1
     return_data = factorlab.where(return_data, feasible, np.nan)

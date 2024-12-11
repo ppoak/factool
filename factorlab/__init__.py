@@ -22,8 +22,9 @@ from .operators import (
     madoutlier, stdoutlier, iqroutlier,
     shift, corr, rank, group, where, mean,
     weightify, diff, absolute,
+    rsum, rmean,
     sum, cumsum, cumprod,
-    fillna, log, sqrt, tsmean,
+    fillna, log, sqrt,
 )
 
 
