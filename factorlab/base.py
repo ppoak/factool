@@ -57,11 +57,6 @@ class FactorManager(forge.ParquetManager):
             rollback = trading_days[min(len(trading_days) - 1, -rollback)]
         return rollback
 
-    def upsert(self, data, partition=None, njobs=-1):
-        if not pd.Index(self.index).isin(data.columns).all():
-            raise ValueError("Malformed data, please check your input")
-        return super().upsert(data, partition, njobs)
-
     def read(
         self, 
         name: str,

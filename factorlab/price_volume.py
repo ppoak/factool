@@ -49,7 +49,7 @@ class DeraPriceFactor(FactorManager):
 class PriceVolumeCorr(FactorManager):
 
     def calc_smart_money_ratio(self, date: pd.Timestamp) -> pd.DataFrame:
-        rollback = self.get_trading_days_rollback(date, 9)
+        rollback = quotes_day.get_trading_days_rollback(date, 9)
         price = quotes_min.read(name="close", begin=date, end=date + pd.Timedelta(days=1))
         ret = price.pct_change(fill_method=None).abs()
         volume = quotes_min.read(name="volume", begin=date, end=date + pd.Timedelta(days=1))
@@ -113,17 +113,11 @@ class PriceVolumeCorr(FactorManager):
         return res
     
     def calc_trend_fund(self, date: str):
-        rollback = self.get_trading_days_rollback(date, 4)
-        volume_5d = quotes_min.read(
-            pivot="volume", index="datetime", columns="code",
-            datetime__ge=rollback, datetime__le=date + pd.Timedelta(days=1)
-        )
+        rollback = quotes_day.get_trading_days_rollback(date, 4)
+        volume_5d = quotes_min.read("volume", begin=rollback, end=date + pd.Timedelta(days=1))
         volume_5d_90 = volume_5d.quantile(0.90)
         volume = volume_5d.loc[date:]
-        price = quotes_min.read(
-            index="datetime", columns="code", pivot="close", 
-            datetime__ge=date, datetime__le=date + pd.Timedelta(days=1)
-        )
+        price = quotes_min.read("close", begin=date, end=date + pd.Timedelta(days=1))
 
         trend_fund_volume = volume[volume > volume_5d_90]
         trend_fund_price = price[~np.isnan(trend_fund_volume)]
@@ -133,25 +127,16 @@ class PriceVolumeCorr(FactorManager):
         resistance_price = trend_fund_price[trend_fund_price > trend_fund_price.mean()]
         resistance_volume = trend_fund_volume[~np.isnan(resistance_price)].sum()
 
-        shares = quotes_day.read(
-            index="date", pivot="circulation_a", columns="code", 
-            date__ge=date, date__le=date
-        ).loc[date]
-        res = (support_volume * resistance_volume) / shares
+        shares = quotes_day.read("circulation_a", begin=date, end=date).loc[date]
+        res = (support_volume - resistance_volume) / shares
         res.name = date
         return res
 
     def calc_price_spread(self, date: str):
-        rollback = self.get_trading_days_rollback(date, 252)
-        price = quotes_day.read(
-            index="date", pivot="close", columns="code", 
-            date__ge=rollback, date__le=date
-        )
-        _adj = quotes_day.read(
-            index="date", pivot="adjfactor", columns="code", 
-            date__ge=rollback, date__le=date
-        )
-        ret = (price * _adj).pct_change(fill_method=None).tail(252)
+        rollback = self.get_trading_days_rollback(date, 251)
+        price = quotes_day.read("close", begin=rollback, end=date)
+        adj = quotes_day.read("adjfactor", begin=rollback, end=date)
+        ret = (price * adj).pct_change(fill_method=None).tail(252)
         distance_matrix = 1 - ret.corr(method='pearson')
 
         nearest_stocks = {}
