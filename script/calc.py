@@ -20,17 +20,23 @@ def calc_factor(
 
 
 if __name__ == "__main__":
-    path = Path("data/price_volume")
-    begin = "2024-01-01"
+    path = Path("d:/documents/database/factor_lab/price_volume")
+    begin = "2015-01-01"
     end = "2024-12-08"
-    name = "time_weighted_price"
+    names = [
+        "smart_money_ratio", 
+        "price_volume_corr", 
+        "average_relative_price_percent", 
+        "compound_volume_first"
+    ]
     partition = "month"
     njobs = 18
-    calc_factor(
-        path=path,
-        name=name,
-        begin=begin,
-        end=end,
-        partition=partition,
-        njobs=njobs
-    )
+    for name in names:
+        calc_factor(
+            path=path,
+            name=name,
+            begin=begin,
+            end=end,
+            partition=partition,
+            njobs=njobs
+        )

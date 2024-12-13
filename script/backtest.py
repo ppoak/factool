@@ -151,22 +151,21 @@ def backtest_factor(
 if __name__ == "__main__":
     # User-configurable parameters for the report generation
 
-    factor_name = "average_relative_price_percent"  # The factor you want to analyze
-    factor_path = "data/price_volume"  # Path to the data folder (default is "data/price_volume")
+    factor_name = "compound_volume_first"  # The factor you want to analyze
+    factor_path = "D:/Documents/DataBase/factor_lab"  # Path to the data folder (default is "data/price_volume")
     ptype = "open"
-    out_path = f"out/report_{factor_name}.png"  # Output file path for the report
     pool_code = "000985.XSHG"
 
     # Performance settings
-    period = 5  # Period for the performance calculation (e.g., -5 for 5 periods)
+    period = 5  # Period for the performance calculation (e.g., 5 for 5 days in a period)
     ngroup = 5  # Number of groups for factor sorting
-    njobs = 1  # Number of jobs for parallel execution, -1 means use all CPUs
     topk = 100 # Number of top stocks to consider
 
     # Date range for the analysis
     begin = "2015-01-01"  # Start date
     end = "2024-12-02"  # End date
     commission = 0.0000  # Commission rate for trading
+    out_path = f"out/report_{factor_name}_{ptype}_{pool_code}_{period}_{topk}.png"  # Output file path for the report
 
     # Generate the report with the specified parameters
     factor_data = factorlab.Factor(factor_path).read(factor_name, begin=begin, end=end)
