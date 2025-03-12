@@ -1,18 +1,14 @@
+from .base import FactorManager
 from .base import (
-    BaseFactor, 
-    quotes_day, quotes_min,
-    stock_connect, financial, industry_info, 
-    index_quotes_day, index_quotes_min, index_weights, 
-    filter, prices, industry_returns, 
-    barra_rq, 
-    zscore, minmax,
-    madoutlier, stdoutlier, iqroutlier,
-    fillna, log, tsmean, sqrt, neutralization, 
+    quotes_day,
+    quotes_min,
+    index_weights,
 )
+
 
 from .marketsize import MarketSizeFactor
 from .retdist import RetDistFactor
-from .pricevolume import DeraPriceFactor, PriceVolumeCorr
+from .price_volume import DeraPriceFactor, PriceVolumeCorr
 from .voldist import VolDistFactor
 from .volatile import VolatileFactor
 from .capflow import CapFlowFactor
@@ -20,6 +16,16 @@ from .evaluation import EvaluationFactor
 from .revmom import MomentumFactor
 from .liquidity import LiquidityFactor
 
+from .operators import (
+    zscore, minmax,
+    add, sub, mul, div,
+    madoutlier, stdoutlier, iqroutlier,
+    shift, corr, rank, group, where, mean,
+    weightify, diff, absolute,
+    rsum, rmean,
+    sum, cumsum, cumprod,
+    fillna, log, sqrt,
+)
 
 
 class Factor(
@@ -35,7 +41,3 @@ class Factor(
     LiquidityFactor
 ):
     pass
-
-factor = Factor("./data/factor", code_level="order_book_id", date_level="date")
-alpha = Factor("./data/alpha", code_level="order_book_id", date_level="date")
-barra = Factor("./data/barra", code_level="order_book_id", date_level="date")
