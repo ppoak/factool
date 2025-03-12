@@ -2,10 +2,8 @@ import duckdb
 import pandas as pd
 from pathlib import Path
 from xtquant import xtdata
-from tqdm.auto import tqdm
 from quool import ParquetManager
 from abc import ABC, abstractmethod
-from joblib import Parallel, delayed
 
 
 class FactorSource(ABC):
@@ -21,16 +19,6 @@ class FactorSource(ABC):
     @abstractmethod
     def get_factor(self, name: str, begin: str, end: str):
         raise NotImplementedError
-
-    def calc(self, name: str, trading_days: pd.DatetimeIndex, njobs: int = -1):
-        result = Parallel(n_jobs=njobs, backend="loky")(
-            delayed(getattr(self, "calc_" + name))(date)
-            for date in tqdm(list(trading_days))
-        )
-        if isinstance(result[0], pd.Series):
-            return pd.concat(result, axis=1).T.sort_index()
-        elif isinstance(result[0], pd.DataFrame):
-            return pd.concat(result, axis=0).sort_index()
 
 
 class XtFactorSource(FactorSource):
@@ -57,7 +45,11 @@ class XtFactorSource(FactorSource):
         begin = pd.to_datetime(begin or "1990-01-01").strftime(r"%Y%m%d")
         end = pd.to_datetime(end or "now").strftime(r"%Y%m%d")
         factor = xtdata.get_market_data_ex(
-            [name], stock_list=self._stock_list, start_time=begin, end_time=end
+            [name],
+            stock_list=self._stock_list,
+            period=self._period,
+            start_time=begin,
+            end_time=end,
         )
         factor = pd.concat(
             [f[name] for f in factor.values()], axis=1, keys=factor.keys()
@@ -167,13 +159,16 @@ class DuckDBFactorSource(FactorSource):
             return self.get_times(None, time)[-n:]
         return self.get_times(time, None)[:n]
 
-    def get_factor(self, name: str, begin: str = None, end: str = None):
-        begin = pd.to_datetime(begin or "1990-01-01").strftime(r"%Y%m%d")
-        end = pd.to_datetime(end or "now").strftime(r"%Y%m%d")
+    def get_factor(
+        self, name: str, begin: str = None, end: str = None, raw: bool = True
+    ):
+        begin = pd.to_datetime(begin or "1990-01-01")
+        end = pd.to_datetime(end or "now")
+        value = "raw" if raw else "processed"
         with duckdb.connect(self._path) as con:
-            factor = con.execute(
-                f"SELECT * FROM {self._name} WHERE time >= ? AND time <= ? AND name = ?",
+            data = con.execute(
+                f"SELECT code, time, {value} FROM {self._name} WHERE time >= ? AND time <= ? AND name = ?",
                 (begin, end, name),
             ).fetch_df()
-            factor = factor.pivot(index="time", columns="code", values="value")
-        return factor
+            data = data.pivot(index="time", columns="code", values=value)
+        return data
