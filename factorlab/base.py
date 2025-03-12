@@ -1,13 +1,13 @@
 import numpy as np
 import pandas as pd
-import dataforge as forge
 import matplotlib.pyplot as plt
+from quool import ParquetManager
 from tqdm import tqdm
 from pathlib import Path
 from joblib import Parallel, delayed
 
 
-class FactorManager(forge.ParquetManager):
+class FactorManager(ParquetManager):
 
     def __init__(
         self, 
