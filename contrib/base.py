@@ -30,7 +30,7 @@ class XtFactorDuckDB(XtFactorSource):
             self._name = name
             return self
         elif isinstance(result[0], pd.DataFrame):
-            self._data = pd.concat(result, axis=0).sort_index()
+            self._data = pd.concat(result, axis=0, keys=trading_days).sort_index()
             self._name = name
             return self
 
