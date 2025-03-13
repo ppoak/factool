@@ -50,6 +50,7 @@ class XtFactorSource(FactorSource):
             period=self._period,
             start_time=begin,
             end_time=end,
+            dividend_type="back",
         )
         factor = pd.concat(
             [f[name] for f in factor.values()], axis=1, keys=factor.keys()
