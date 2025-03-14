@@ -140,18 +140,22 @@ class ParquetFactorSource(FactorSource, ParquetManager):
 
 class DuckDBFactorSource(FactorSource):
 
-    def __init__(self, path: str, name: str):
+    def __init__(self, path: str):
         self._path = path
-        self._name = name
 
     def get_times(self, begin: str = None, end: str = None):
         begin = pd.to_datetime(begin or "1990-01-01").strftime(r"%Y%m%d")
         end = pd.to_datetime(end or "now").strftime(r"%Y%m%d")
         with duckdb.connect(self._path) as con:
-            code = con.execute(f"SELECT code FROM {self._name} LIMIT 1").fetchone()
+            metadata = con.execute(
+                f"SELECT id, class FROM metadata LIMIT 1"
+            ).fetchone()[0]
+            code = con.execute(
+                f"SELECT code FROM {metadata[1]} WHERE id = ? LIMIT 1", (metadata[0],)
+            ).fetchone()[0]
             times = con.execute(
-                f"SELECT DISTINCT time FROM {self._name} WHERE code = ? AND time >= ? AND time <= ? ORDER BY time",
-                (code, begin, end),
+                f"SELECT DISTINCT time FROM {metadata[1]} WHERE code = ? AND id = ? AND time >= ? AND time <= ? ORDER BY time",
+                (code, metadata[0], begin, end),
             ).fetchall()
         return pd.to_datetime(times)
 
@@ -167,9 +171,12 @@ class DuckDBFactorSource(FactorSource):
         end = pd.to_datetime(end or "now")
         value = "raw" if raw else "processed"
         with duckdb.connect(self._path) as con:
+            _id, _class = con.execute(
+                f"SELECT id, class FROM metadata WHERE name = ?", (name,)
+            ).fetchone()
             data = con.execute(
-                f"SELECT code, time, {value} FROM {self._name} WHERE time >= ? AND time <= ? AND name = ?",
-                (begin, end, name),
+                f"SELECT code, time, {value} FROM {_class} WHERE time >= ? AND time <= ? AND id = ?",
+                (begin, end, _id),
             ).fetch_df()
             data = data.pivot(index="time", columns="code", values=value)
         return data

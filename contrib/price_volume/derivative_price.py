@@ -4,8 +4,8 @@ from contrib.base import XtFactorDuckDB
 
 class DerivativePrice(XtFactorDuckDB):
 
-    def __init__(self, path: str, duckdb: str, sector: str = "沪深A股"):
-        super().__init__(path, duckdb, sector, "1m")
+    def __init__(self, qmt_path: str, duckdb_path: str, sector: str = "沪深A股"):
+        super().__init__(qmt_path, duckdb_path, sector, "1m")
 
     def calc_volume_weighted_price(self, date: pd.Timestamp):
         price = self.get_factor(name="close", begin=date, end=date)

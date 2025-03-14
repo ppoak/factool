@@ -11,13 +11,50 @@ from factorlab import XtFactorSource
 class XtFactorDuckDB(XtFactorSource):
 
     def __init__(
-        self, path: str, duckdb: str, sector: str = "沪深A股", period: str = "1d"
+        self,
+        qmt_path: str,
+        duckdb_path: str,
+        sector: str = "沪深A股",
+        period: str = "1d",
     ):
-        super().__init__(path, sector=sector, period=period)
-        self.duckdb = Path(duckdb)
-        self.duckdb.parent.mkdir(parents=True, exist_ok=True)
-        self._name = None
+        super().__init__(qmt_path, sector=sector, period=period)
+        self.duckdb_path = Path(duckdb_path)
+        self.duckdb_path.parent.mkdir(parents=True, exist_ok=True)
+        self.table_name = self.__class__.__name__.lower()
+        with duckdb.connect(self.duckdb_path) as con:
+            # Create metadata table if not exists
+            con.execute(
+                "CREATE TABLE IF NOT EXISTS metadata "
+                "(id BIGINT PRIMARY KEY, name VARCHAR NOT NULL UNIQUE, class VARCHAR NOT NULL)"
+            )
+            con.execute(
+                f"CREATE TABLE IF NOT EXISTS {self.table_name} "
+                "(time TIMESTAMP NOT NULL, code VARCHAR NOT NULL, "
+                "id BIGINT REFERENCES metadata(id), processed DOUBLE PRECISION, "
+                "raw DOUBLE PRECISION, PRIMARY KEY (code, time, id), "
+                "FOREIGN KEY (id) REFERENCES metadata(id))"
+            )
+            con.execute(f"CREATE INDEX IF NOT EXISTS idx_metadata ON metadata (id)")
+            con.execute(
+                f"CREATE INDEX IF NOT EXISTS idx_{self.table_name} ON {self.table_name} (code, time, id)"
+            )
+            con.commit()
         self._data = None
+
+    def _get_factor_id(self, name: str):
+        with duckdb.connect(self.duckdb_path) as con:
+            factor_id = con.execute(
+                f"SELECT id FROM metadata WHERE name = '{name}'"
+            ).fetchone()
+            if factor_id is None:
+                factor_id = con.execute("SELECT MAX(id) FROM metadata").fetchone()[0] or 0
+                con.execute(
+                    f"INSERT INTO metadata (name, id, class) "
+                    f"VALUES (?, ?, ?)", (name, factor_id + 1, self.table_name)
+                )
+                con.commit()
+                return factor_id + 1
+        return factor_id[0]
 
     def calc(self, name: str, begin: str, end: str, n_jobs: int = -1):
         trading_days = self.get_times(begin, end)
@@ -25,66 +62,27 @@ class XtFactorDuckDB(XtFactorSource):
             delayed(getattr(self, "calc_" + name))(date)
             for date in tqdm(list(trading_days))
         )
+        self._name = name
         if isinstance(result[0], pd.Series):
             self._data = pd.concat(result, axis=1, keys=trading_days).T.sort_index()
-            self._name = name
             return self
         elif isinstance(result[0], pd.DataFrame):
             self._data = pd.concat(result, axis=0, keys=trading_days).sort_index()
-            self._name = name
             return self
 
-    def _pandas_dtype_to_duckdb_type(self, dtype: type) -> str:
-        if pd.api.types.is_integer_dtype(dtype):
-            return "BIGINT"
-        elif pd.api.types.is_float_dtype(dtype):
-            return "DOUBLE"
-        elif pd.api.types.is_bool_dtype(dtype):
-            return "BOOLEAN"
-        elif pd.api.types.is_datetime64_any_dtype(dtype):
-            return "TIMESTAMP"
-        elif pd.api.types.is_string_dtype(dtype):
-            return "VARCHAR"
-        elif pd.api.types.is_bool_dtype(dtype):
-            return "BOOLEAN"
-        else:
-            return "VARCHAR"
-
     def upsert(self, df: pd.DataFrame):
-        conn = duckdb.connect(self.duckdb)
-        table_name = self.__class__.__name__.lower()
+        conn = duckdb.connect(self.duckdb_path)
 
         # make sure the dataframe has the required columns
         required_columns = {"code", "time"}
         if not required_columns.issubset(df.columns):
             raise ValueError("Required columns 'code' and 'time' missing")
 
-        # check existence of table
-        table_exists = (
-            conn.execute(
-                f"SELECT COUNT(*) FROM information_schema.tables WHERE table_name = '{table_name}'"
-            ).fetchone()[0]
-            > 0
-        )
-
-        if not table_exists:
-            create_sql = f"""
-            CREATE TABLE {table_name} (
-                {', '.join([f'{col} {self._pandas_dtype_to_duckdb_type(dtype)}' for col, dtype in zip(df.columns, df.dtypes)])},
-                PRIMARY KEY (code, time)
-            )
-            """
-            create_index_sql = (
-                f"CREATE INDEX idx_{table_name} ON {table_name} (code, time)"
-            )
-            conn.execute(create_sql)
-            conn.execute(create_index_sql)
-
-        temp_table = f"temp_{table_name}"
+        temp_table = f"temp_{self.table_name}"
         conn.register(temp_table, df)
 
         upsert_sql = f"""
-        INSERT OR REPLACE INTO {table_name} 
+        INSERT OR REPLACE INTO {self.table_name} 
         SELECT * FROM {temp_table}
         """
 
@@ -108,8 +106,8 @@ class XtFactorDuckDB(XtFactorSource):
                 [factor.stack(), self._data.stack()], axis=1
             ).reset_index()
             factor.columns = ["time", "code", "processed", "raw"]
-            factor["name"] = self._name
-            factor = factor[["time", "code", "name", "processed", "raw"]]
+            factor["id"] = self._get_factor_id(self._name)
+            factor = factor[["time", "code", "id", "processed", "raw"]]
             self.upsert(factor)
 
         elif self._data.index.nlevels == 2:
@@ -122,12 +120,14 @@ class XtFactorDuckDB(XtFactorSource):
                     [factor.stack(), self._data[col]], axis=1
                 ).reset_index()
                 fact.columns = ["time", "code", "processed", "raw"]
-                fact["name"] = col
-                fact = fact[["time", "code", "name", "processed", "raw"]]
+                fact["id"] = self._get_factor_id(col)
+                fact = fact[["time", "code", "id", "processed", "raw"]]
                 self.upsert(fact)
 
     def __str__(self):
-        return f"{self.__class__.__name__}(duckdb={self.duckdb}, name={self._name}, factor={self._data})"
+        return (
+            f"{self.__class__.__name__}(duckdb={self.duckdb_path}; factor={self._data})"
+        )
 
     def __repr__(self):
         return self.__str__()
