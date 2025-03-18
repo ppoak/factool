@@ -5,10 +5,10 @@ from contrib.base import BaseFactor
 class DerivativePrice(BaseFactor):
 
     def calc_weighted_price(self, time: pd.Timestamp):
-        price = self.get_factor(
+        price = self.source.get_factor(
             name="close", begin=time, end=time + pd.offsets.Hour(n=16)
         )
-        volume = self.get_factor(
+        volume = self.source.get_factor(
             name="volume", begin=time, end=time + pd.offsets.Hour(n=16)
         )
         volume_weighted = (price * volume / volume.sum()).sum()

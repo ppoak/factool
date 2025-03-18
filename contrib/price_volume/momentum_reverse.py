@@ -5,8 +5,8 @@ from contrib.base import BaseFactor
 class MomentumReverseD(BaseFactor):
 
     def calc_naive_return_momentum(self, date: str | pd.Timestamp) -> pd.DataFrame:
-        rollback = self.get_time(date, 252)[0]
-        price = self.get_factor("close", rollback, date)
+        rollback = self.source.get_time(date, 252)[0]
+        price = self.source.get_factor("close", rollback, date)
         return pd.concat(
             [
                 price.iloc[-1] / price.iloc[-5] - 1,
@@ -24,8 +24,8 @@ class MomentumReverseD(BaseFactor):
         )
 
     def calc_nonrecent_return_momentum(self, date: str | pd.Timestamp) -> pd.DataFrame:
-        rollback = self.get_time(date, 252)[0]
-        price = self.get_factor("close", rollback, date).iloc[:-5]
+        rollback = self.source.get_time(date, 252)[0]
+        price = self.source.get_factor("close", rollback, date).iloc[:-5]
         return pd.concat(
             [
                 price.iloc[-1] / price.iloc[-5] - 1,
