@@ -1,8 +1,8 @@
 import pandas as pd
-from contrib.base import XtFactorDuckDB
+from contrib.base import DuckDBFactor
 
 
-class DerivativePrice(XtFactorDuckDB):
+class DerivativePrice(DuckDBFactor):
 
     def __init__(self, qmt_path: str, duckdb_path: str, sector: str = "沪深A股"):
         super().__init__(qmt_path, duckdb_path, sector, "1m")

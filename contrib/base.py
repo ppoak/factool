@@ -8,7 +8,7 @@ from factorlab import operators
 from factorlab import XtFactorSource
 
 
-class XtFactorDuckDB(XtFactorSource):
+class DuckDBFactor(XtFactorSource):
 
     def __init__(
         self,

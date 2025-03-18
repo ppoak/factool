@@ -5,14 +5,14 @@ import contrib
 # %% [markdown]
 # ## 1. Factor Definition
 # Currently, all factor definition should be written in contrib
-duckdb = "data/price_volume.db"
-factor = contrib.DerivativePrice(None, duckdb)
+duckdb_path = "data/price_volume.db"
+factor = contrib.DerivativePrice(None, duckdb_path)
 
 # %% [markdown]
 # ## 2. Factor Calculation
-factor.calc("head_weighted_price", "2025-03-01", "now", n_jobs=-1)
+factor.calc("volume_weighted_price", "2024-03-13", "now", n_jobs=-1)
 
-# %%
+# %% [markdown]
 # ## 3. Save Factor
 factor.save()
 
@@ -22,5 +22,5 @@ factor.save()
 from factorlab import DuckDBFactorSource
 
 name = "DerivativePrice"
-source = DuckDBFactorSource(duckdb, name)
-source.get_factor("head_weighted_price")
+source = DuckDBFactorSource(duckdb_path)
+source.get_factor("volume_weighted_price")

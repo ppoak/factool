@@ -1,8 +1,8 @@
 import pandas as pd
-from contrib.base import XtFactorDuckDB
+from contrib.base import DuckDBFactor
 
 
-class MomentumReverseD(XtFactorDuckDB):
+class MomentumReverseD(DuckDBFactor):
 
     def __init__(self, path: str, duckdb: str, sector: str = "沪深A股"):
         super().__init__(path, duckdb, sector, "1d")
