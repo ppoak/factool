@@ -25,6 +25,9 @@ class FactorSource(ABC):
     @abstractmethod
     def save(self, name: str, df: pd.DataFrame):
         raise NotImplementedError
+    
+    def __str__(self):
+        return f"{self.__class__.__name__}"
 
 
 class XtFactorSource(FactorSource):
