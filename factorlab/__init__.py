@@ -6,3 +6,5 @@ from .source import (
 )
 
 from .evaluator import Evaluator
+
+__version__ = "0.3.0"

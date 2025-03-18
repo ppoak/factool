@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "factorlab"
-version = "0.2.0"
+version = "0.3.0"
 description = "Factor lab is a quant framework for factor research."
 readme = { file = "README.md", content-type = "text/markdown" }
 authors = [
