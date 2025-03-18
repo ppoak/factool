@@ -1,10 +1,7 @@
-import duckdb
 import pandas as pd
-from pathlib import Path
 from tqdm.auto import tqdm
-from functools import partial
 from joblib import Parallel, delayed
-from factorlab import operators, FactorSource
+from factorlab import FactorSource
 
 
 class BaseFactor:
