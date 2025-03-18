@@ -1,11 +1,8 @@
 import pandas as pd
-from contrib.base import DuckDBFactor
+from contrib.base import BaseFactor
 
 
-class MomentumReverseD(DuckDBFactor):
-
-    def __init__(self, path: str, duckdb: str, sector: str = "沪深A股"):
-        super().__init__(path, duckdb, sector, "1d")
+class MomentumReverseD(BaseFactor):
 
     def calc_naive_return_momentum(self, date: str | pd.Timestamp) -> pd.DataFrame:
         rollback = self.get_time(date, 252)[0]
