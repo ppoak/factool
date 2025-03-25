@@ -119,17 +119,17 @@ class ParquetFactorSource(FactorSource):
 
     def get_factor(
         self,
-        name: str,
+        table_name: str,
+        factor_name: str,
         begin: pd.Timestamp | str = None,
         end: pd.Timestamp | str = None,
-        processed: bool = False,
         **kwargs,
     ) -> pd.DataFrame:
-        pm = ParquetManager(self.path / name)
+        pm = ParquetManager(self.path / table_name)
         kwargs.update(
             {
-                "pivot": name + ("" if processed else "_processed"),
-                "index": self.date_col,
+                "pivot": factor_name,
+                "index": self.time_col,
                 "columns": self.code_col,
             }
         )
@@ -143,19 +143,20 @@ class ParquetFactorSource(FactorSource):
 
     def save(
         self,
-        name: str,
+        table_name: str,
         df: pd.DataFrame,
+        partition_col: str,
+        partitioner: str,
         processors: list[callable] = None,
-        partition_col: str = "month",
-        partitioner: str = "month",
     ):
         pm = ParquetManager(
-            self.path / name,
+            self.path / table_name,
             index_col=[self.time_col, self.code_col],
             partition_col=partition_col,
         )
+        processors = processors or [zscore, partial(madoutlier, dev=5)]
         if df.index.nlevels == 1:
-            for processor in processors or [zscore, partial(madoutlier, dev=5)]:
+            for processor in processors:
                 processed = processor(df)
             df = pd.concat(
                 [processed.stack(), df.stack().to_frame("_processed")], axis=1
@@ -168,7 +169,7 @@ class ParquetFactorSource(FactorSource):
                 factors = [processor(factor) for factor in factors]
             factor = pd.concat(
                 [factor.stack() for factor in factors],
-                keys=df.columns.str + "_processed",
+                keys=df.columns + "_processed",
                 axis=1,
             )
             factor = pd.concat([factor, df], axis=1).reset_index(names=["time", "code"])
