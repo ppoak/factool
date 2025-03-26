@@ -1,72 +1,44 @@
 import numpy as np
 import pandas as pd
 import statsmodels.api as sm
-from .base import FactorManager
+from .factor import BaseFactor
 
 
-class LiquidityFactor(FactorManager):
+class Liquidity(BaseFactor):
 
-    def get_turnover_month(self, date: str | pd.Timestamp) -> pd.Series:
-        rollback = quotes_day.get_trading_days_rollback(date, 21)
-        volume = quotes_day.read("volume", start=rollback, stop=date)
-        shares = quotes_day.read("circulation_a", start=rollback, stop=date)
-        res = np.log((volume / shares).sum().clip(lower=1e-10))
-        res.name = date
-        return res * 0.35
+    def calc_turnover_rate(self, time: str | pd.Timestamp) -> pd.Series:
+        rollback = self.get_time(time, 252)[0]
+        volume = self.source.get_factor("volume", begin=rollback, end=time)
+        shares = self.source.get_factor("circulation_a", begin=rollback, end=time)
+        month = np.log((volume.iloc[-21:] / shares.iloc[-21:]).sum().clip(lower=1e-5))
+        quarter = np.log((volume.iloc[-63:] / shares.iloc[-63:]).sum().clip(lower=1e-5))
+        annual = np.log((volume / shares).sum().clip(lower=1e-5))
+        return pd.concat(
+            [month, quarter, annual],
+            axis=1,
+            keys=[
+                "mothly_turnover_rate",
+                "quarterly_turnover_rate",
+                "annual_turnover_rate",
+            ],
+        )
 
-    def get_turnover_quarter(self, date: str | pd.Timestamp) -> pd.Series:
-        res = 0
-        for i in range(0, 43, 21):
-            res += np.exp(self.get_turnover_month(quotes_day.get_trading_days_rollback(date, i)))
-        res = np.log((res / 3).clip(lower=1e-10))
-        res.name = date
-        return res
-    
-    def get_turnover_annual(self, date: str | pd.Timestamp) -> pd.Series:
-        res = 0
-        for i in range(0, 232, 21):
-            res += np.exp(self.get_turnover_month(quotes_day.get_trading_days_rollback(date, i)))
-        res = np.log((res / 12).clip(lower=1e-10))
-        res.name = date
-        return res
+    def calc_nonliquidity_cv(self, date: str | pd.Timestamp) -> pd.Series:
+        rollback = self.source.get_time(date, 20)[0]
+        price = self.source.get_factor("close_post", begin=rollback, end=date)
+        amount = self.source.get_factor("amount", begin=rollback, end=date)
+        ret = price.pct_change(fill_method=None).abs()
+        return ret / amount
 
-    def get_compound_turnover(self, date: str | pd.Timestamp) -> pd.Series:
-        res = 0.35 * zscore(self.get_turnover_month(date).to_frame().T) + \
-            0.35 * zscore(self.get_turnover_quarter(date).to_frame().T) + \
-            0.3 * zscore(self.get_turnover_annual(date).to_frame().T)
-        res = res.loc[date]
-        res.name = date
-        return res
-
-    def get_turnover_cv(self, date: str | pd.Timestamp) -> pd.Series:
-        rollback = quotes_day.get_trading_days_rollback(date, 20)
-        volume = quotes_day.read("volume", start=rollback, stop=date)
-        shares = quotes_day.read("circulation_a", start=rollback, stop=date)
-        turnover = (volume / shares).tail(20)
-        res = turnover.std()/turnover.mean()
-        res.name = date
-        return res
-
-    def get_nonliquidity_cv(self, date: str | pd.Timestamp) -> pd.Series:
-        rollback = quotes_day.get_trading_days_rollback(date, 20)
-        price = quotes_day.read("close", start=rollback, stop=date)
-        _adj= quotes_day.read("adjfactor", start=rollback, stop=date)
-        ret  = (price * _adj).pct_change(fill_method=None).tail(20).abs()
-        amount = quotes_day.read("amount", start=rollback, stop=date).tail(20)
-        nonliquidity = ret / amount
-        res = nonliquidity.std()/ nonliquidity.mean()
-        res.name = date
-        return res
-
-    def get_hli(self, date: str) -> pd.Series:
-        rollback = quotes_day.get_trading_days_rollback(date, 1)
-        high = quotes_day.read("high", start=rollback, stop=date)
-        low = quotes_day.read("low", start=rollback, stop=date)
-        p1 = (np.log(high/low).sum()**2) / 2
-        p2 = np.log(high.max()/low.min())**2
-        p3 = (np.sqrt(2*p1)-np.sqrt(p1))/(3-2*np.sqrt(2)) - np.sqrt(p2/(3-2*np.sqrt(2)))
-        hl = 2*(np.exp(p3) -1)/ (1 + np.exp(p3))
-        amount = quotes_day.read("amount", start=date, stop=date).squeeze()
-        res = hl/amount
-        res.name = date
-        return res
+    def calc_high_low_index(self, date: str) -> pd.Series:
+        rollback = self.source.get_time(date, 1)[0]
+        high = self.source.get_factor("high", begin=rollback, end=date)
+        low = self.source.get_factor("low", begin=rollback, end=date)
+        amount = self.source.get_factor("amount", begin=rollback, end=date)
+        p1 = (np.log(high / low).sum() ** 2) / 2
+        p2 = np.log(high.max() / low.min()) ** 2
+        p3 = (np.sqrt(2 * p1) - np.sqrt(p1)) / (3 - 2 * np.sqrt(2)) - np.sqrt(
+            p2 / (3 - 2 * np.sqrt(2))
+        )
+        hl = 2 * (np.exp(p3) - 1) / (1 + np.exp(p3))
+        return hl / amount
