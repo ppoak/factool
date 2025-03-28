@@ -25,9 +25,12 @@ class FactorSource(ABC):
     @abstractmethod
     def save(self, name: str, df: pd.DataFrame):
         raise NotImplementedError
-    
+
     def __str__(self):
         return f"{self.__class__.__name__}"
+
+    def __repr__(self):
+        return self.__str__()
 
 
 class XtFactorSource(FactorSource):
@@ -78,82 +81,72 @@ class ParquetFactorSource(FactorSource):
         path: str | Path,
         time_col: str = "time",
         code_col: str = "code",
+        partition_col: str = None,
     ):
         self.path = Path(path)
+        self.manager = ParquetManager(
+            self.path,
+            index_col=[time_col, code_col],
+            partition_col=partition_col or "month",
+        )
         self.time_col = time_col
         self.code_col = code_col
-
-    @property
-    def names(self):
-        return list(sorted(self.path.iterdir()))
 
     def get_times(
         self,
         begin: str | pd.Timestamp = None,
         end: str | pd.Timestamp = None,
-        code: str = "000001.XSHG",
+        code: str = "000001.XSHE",
     ):
-        if self.names:
-            name = self.names[0]
-        pm = ParquetManager(self.path / name)
         params = {
-            "index": self.date_col,
+            "index": self.time_col,
             self.code_col: code,
         }
         if begin is not None:
-            params[f"{self.date_col}__ge"] = pd.to_datetime(begin)
+            params[f"{self.time_col}__ge"] = pd.to_datetime(begin)
         if end is not None:
-            params[f"{self.date_col}__le"] = pd.to_datetime(end)
-        return pm.read(**params).index.unique().sort_values()
+            params[f"{self.time_col}__le"] = pd.to_datetime(end)
+        return self.manager.read(**params).index.unique().sort_values()
 
     def get_time(self, time: str | pd.Timestamp = None, n: int = 1):
         time = pd.to_datetime(time or "now")
         if n >= 0:
             trading_days = self.get_times(begin=None, end=time)
             rollback_days = trading_days[trading_days <= time]
-            n = rollback_days[max(-len(rollback_days), -n - 1)]
+            n = rollback_days[max(-len(rollback_days), -n - 1):]
         else:
             trading_days = self.get_times(begin=time, end=None)
-            n = trading_days[min(len(trading_days) - 1, -n)]
+            n = trading_days[:min(len(trading_days) - 1, -n)]
         return n
 
     def get_factor(
         self,
-        table_name: str,
-        factor_name: str,
+        name: str,
         begin: pd.Timestamp | str = None,
         end: pd.Timestamp | str = None,
         **kwargs,
     ) -> pd.DataFrame:
-        pm = ParquetManager(self.path / table_name)
         kwargs.update(
             {
-                "pivot": factor_name,
+                "pivot": name,
                 "index": self.time_col,
                 "columns": self.code_col,
             }
         )
         if begin is not None:
-            kwargs.update({f"{self.date_col}__ge": begin})
+            kwargs.update({f"{self.time_col}__ge": begin})
         if end is not None:
-            kwargs.update({f"{self.date_col}__le": end})
-        df = pm.read(**kwargs)
+            kwargs.update({f"{self.time_col}__le": end})
+        df = self.manager.read(**kwargs)
 
         return df.sort_index().dropna(axis=0, how="all")
 
     def save(
         self,
-        table_name: str,
         df: pd.DataFrame,
-        partition_col: str,
         partitioner: str,
         processors: list[callable] = None,
     ):
-        pm = ParquetManager(
-            self.path / table_name,
-            index_col=[self.time_col, self.code_col],
-            partition_col=partition_col,
-        )
         processors = processors or [zscore, partial(madoutlier, dev=5)]
         if df.index.nlevels == 1:
             for processor in processors:
@@ -161,7 +154,7 @@ class ParquetFactorSource(FactorSource):
             df = pd.concat(
                 [processed.stack(), df.stack().to_frame("_processed")], axis=1
             ).reset_index(names=["time", "code"])
-            pm.upsert(factor, partitioner=partitioner)
+            self.manager.upsert(factor, partitioner=partitioner)
 
         elif df.index.nlevels == 2:
             factors = [df[col].unstack() for col in df.columns]
@@ -173,7 +166,7 @@ class ParquetFactorSource(FactorSource):
                 axis=1,
             )
             factor = pd.concat([factor, df], axis=1).reset_index(names=["time", "code"])
-            pm.update_insert(factor, partitioner=partitioner)
+            self.manager.update_insert(factor, partitioner=partitioner)
 
 
 class DuckDBFactorSource(FactorSource):

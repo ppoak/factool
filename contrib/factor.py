@@ -8,9 +8,12 @@ class BaseFactor:
 
     def __init__(
         self,
-        source: FactorSource,
+        sources: list[FactorSource] | FactorSource,
     ):
-        self.source = source
+        if not isinstance(sources, list):
+            sources = [sources]
+        self.sources = sources
+        self.source = sources[0]
 
     def calc(self, name: str, begin: str, end: str, n_jobs: int = -1):
         trading_days = self.source.get_times(begin, end)
@@ -24,9 +27,7 @@ class BaseFactor:
             return pd.concat(result, axis=0, keys=trading_days).sort_index()
 
     def __str__(self):
-        return (
-            f"{self.__class__.__name__}({self.source})"
-        )
+        return f"{self.__class__.__name__}({self.sources})"
 
     def __repr__(self):
         return self.__str__()
