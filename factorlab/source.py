@@ -113,10 +113,10 @@ class ParquetFactorSource(FactorSource):
         if n >= 0:
             trading_days = self.get_times(begin=None, end=time)
             rollback_days = trading_days[trading_days <= time]
-            n = rollback_days[max(-len(rollback_days), -n - 1):]
+            n = rollback_days[max(-len(rollback_days), -n - 1) :]
         else:
             trading_days = self.get_times(begin=time, end=None)
-            n = trading_days[:min(len(trading_days) - 1, -n)]
+            n = trading_days[: min(len(trading_days) - 1, -n)]
         return n
 
     def get_factor(
