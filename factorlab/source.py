@@ -81,13 +81,13 @@ class ParquetFactorSource(FactorSource):
         path: str | Path,
         time_col: str = "time",
         code_col: str = "code",
-        partition_col: str = None,
+        grouper: str = None,
     ):
         self.path = Path(path)
         self.manager = ParquetManager(
             self.path,
-            index_col=[time_col, code_col],
-            partition_col=partition_col or "month",
+            unikey=[time_col, code_col],
+            grouper=grouper,
         )
         self.time_col = time_col
         self.code_col = code_col
@@ -144,7 +144,6 @@ class ParquetFactorSource(FactorSource):
     def save(
         self,
         df: pd.DataFrame,
-        partitioner: str,
         processors: list[callable] = None,
     ):
         processors = processors or [zscore, partial(madoutlier, dev=5)]
@@ -154,7 +153,7 @@ class ParquetFactorSource(FactorSource):
             df = pd.concat(
                 [processed.stack(), df.stack().to_frame("_processed")], axis=1
             ).reset_index(names=["time", "code"])
-            self.manager.upsert(factor, partitioner=partitioner)
+            self.manager.update(factor)
 
         elif df.index.nlevels == 2:
             factors = [df[col].unstack() for col in df.columns]
@@ -166,7 +165,7 @@ class ParquetFactorSource(FactorSource):
                 axis=1,
             )
             factor = pd.concat([factor, df], axis=1).reset_index(names=["time", "code"])
-            self.manager.update_insert(factor, partitioner=partitioner)
+            self.manager.update(factor)
 
 
 class DuckDBFactorSource(FactorSource):

@@ -7,20 +7,18 @@ import factorlab
 # ## 1. Factor Definition
 # Currently, all factor definition should be written in contrib
 source = factorlab.ParquetFactorSource("D:/Documents/DataBase/quotes_day")
-calculator = contrib.PriceVolumeDay(source)
+calculator = contrib.MarketSize(source)
 
 # %% [markdown]
 # ## 2. Factor Calculation
-data = calculator.calc("compound_volume", "2018-01-01", "now", n_jobs=-1)
+factor_name = "market_sizes"
+data = calculator.calc(factor_name, "2015-01-01", "now", n_jobs=-1)
 
 # %% [markdown]
 # ## 3. Save Factor
-dumper = factorlab.ParquetFactorSource("data/coumpound_volume")
-dumper.save(
-    data,
-    partitioner=data.index.get_level_values(0).strftime(r"%Y-%m"),
-)
+dumper = factorlab.ParquetFactorSource(f"data/{factor_name}")
+dumper.save(data)
 
 # %% [markdown]
 # ## 4. Load Factor
-dumper.get_factor("corr_pos_pos", begin="2025-01-01", end="now")
+dumper.get_factor("log_market_size_processed", begin="2025-01-01", end="now")
