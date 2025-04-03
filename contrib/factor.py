@@ -15,16 +15,15 @@ class BaseFactor:
         self.sources = sources
         self.source = sources[0]
 
-    def calc(self, name: str, begin: str, end: str, n_jobs: int = -1):
-        trading_days = self.source.get_times(begin, end)
+    def calc(self, name: str, times: list, n_jobs: int = -1):
         result = Parallel(n_jobs=n_jobs, backend="loky")(
             delayed(getattr(self, "calc_" + name))(date)
-            for date in tqdm(list(trading_days))
+            for date in tqdm(list(times))
         )
         if isinstance(result[0], pd.Series):
-            return pd.concat(result, axis=1, keys=trading_days).T.sort_index()
+            return pd.concat(result, axis=1, keys=times).T.sort_index()
         elif isinstance(result[0], pd.DataFrame):
-            return pd.concat(result, axis=0, keys=trading_days).sort_index()
+            return pd.concat(result, axis=0, keys=times).sort_index()
 
     def __str__(self):
         return f"{self.__class__.__name__}({self.sources})"
