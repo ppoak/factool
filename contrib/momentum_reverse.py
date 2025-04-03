@@ -31,7 +31,7 @@ class MomentumReverse(BaseFactor):
                 price.iloc[-1] / price.iloc[-5] - 1,
                 price.iloc[-1] / price.iloc[-21] - 1,
                 price.iloc[-1] / price.iloc[-63] - 1,
-                price.iloc[-1] / price.iloc[-252] - 1,
+                price.iloc[-1] / price.iloc[0] - 1,
             ],
             axis=1,
             keys=[
