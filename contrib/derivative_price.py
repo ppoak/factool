@@ -6,7 +6,7 @@ class DerivativePrice(BaseFactor):
 
     def calc_weighted_price(self, time: pd.Timestamp):
         price = self.source.get_factor(
-            name="close", begin=time, end=time + pd.offsets.Hour(n=16)
+            name="close_post", begin=time, end=time + pd.offsets.Hour(n=16)
         )
         volume = self.source.get_factor(
             name="volume", begin=time, end=time + pd.offsets.Hour(n=16)
