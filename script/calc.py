@@ -6,13 +6,14 @@ import factorlab
 # %% [markdown]
 # ## 1. Factor Definition
 # Currently, all factor definition should be written in contrib
-source = factorlab.ParquetFactorSource("D:/Documents/DataBase/quotes_day")
-calculator = contrib.MarketSize(source)
+day = factorlab.ParquetFactorSource("D:/Documents/DataBase/quotes_day")
+minute = factorlab.ParquetFactorSource("D:/Documents/DataBase/quotes_min")
+calculator = contrib.DerivativePrice(minute)
 
 # %% [markdown]
 # ## 2. Factor Calculation
-factor_name = "market_sizes"
-data = calculator.calc(factor_name, "2015-01-01", "now", n_jobs=-1)
+factor_name = "weighted_price"
+data = calculator.calc(factor_name, day.get_times("2015-01-01", "now"), n_jobs=-1)
 
 # %% [markdown]
 # ## 3. Save Factor
@@ -21,4 +22,4 @@ dumper.save(data)
 
 # %% [markdown]
 # ## 4. Load Factor
-dumper.get_factor("log_market_size_processed", begin="2025-01-01", end="now")
+dumper.get_factor("nonrecent_weekly_return_processed", begin="2025-01-01", end="now")
