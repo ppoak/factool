@@ -16,20 +16,18 @@ log_path = (
     f"out/{factor_name}.log"  # Path to the log file (default is "out/factor_name.log")
 )
 begin = "2015-01-01"  # Start date
-end = "2024-12-02"  # End date
+end = "now"  # End date
 ptype = (
     "open"  # Price type to use for backtesting (e.g., "open", "close", "high", "low")
 )
 benchmark_code = "000985.XSHG"
 time_col = "time"  # Name of the time column in the data
 code_col = "code"  # Name of the code column in the data
-begin = "2015-01-01"  # Begin date
-end = "2024-12-02"  # End date
 freq = 5  # Frequency of rebalance (e.g., 1 for daily, 5 for weekly)
 weight = None  # Portfolio weights (default is None)
 topk = 100  # Number of top stocks to select (default is 100)
 ic_method = "spearman"  # Method to use for information coefficient calculation (default is "spearman")
-ngroup = 10  # Number of groups to split the stocks into (default is 10)
+ngroup = 5  # Number of groups to split the stocks into (default is 10)
 commission = 0.0000  # Commission rate for trading
 out_path = f"out/report_{factor_name}_{ptype}_{benchmark_code}_{freq}_{topk}.png"  # Output file path for the report
 logger = setup_logger("factor_test", file=log_path, level="INFO")
