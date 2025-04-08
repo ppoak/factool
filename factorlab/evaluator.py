@@ -93,58 +93,76 @@ class Evaluator:
             groups = (self._factor * direction).apply(
                 lambda x: pd.qcut(x, n, labels=False, duplicates="raise"), axis=1
             ) + 1
+
+            future = self._shifted.shift(-freq) / self._shifted - 1
+            feasible = (
+                feasible
+                if feasible is not None
+                else pd.DataFrame(
+                    np.ones_like(future),
+                    index=future.index,
+                    columns=future.columns,
+                )
+            )
+            weight = (
+                weight
+                if weight is not None
+                else pd.DataFrame(
+                    np.ones_like(future), index=future.index, columns=future.columns
+                )
+            )
+            weight = weight.where(feasible, 0)
+
+            values = []
+            turnovers = []
+            evaluations = []
+            for i in range(1, n + 1):
+                # filter weight
+                _weight = weight.where(groups == i, 0)
+                _weight = _weight.div(_weight.sum(axis=1), axis=0) / freq
+                # calculate turnover
+                turnover = _weight.diff(freq).abs()
+                turnover.iloc[:freq] = _weight.iloc[:freq]
+                turnover = turnover.sum(axis=1) / freq
+                # calculate returns
+                returns = (future * _weight).sum(axis=1) - commission * turnover
+                value = (returns.shift(1 + freq).fillna(0) + 1).cumprod()
+                values.append(value)
+                turnovers.append(turnover)
+                evaluations.append(
+                    QuoolEvaluator.evaluate(
+                        value, benchmark=benchmark, turnover=turnover
+                    )
+                )
+
+            self.value_ngroup = pd.concat(
+                values, axis=1, keys=[f"Group_{i}" for i in range(1, n + 1)]
+            )
+            self.turnover_ngroup = pd.concat(
+                turnovers, axis=1, keys=[f"Group_{i}" for i in range(1, n + 1)]
+            )
+            self.evaluation_ngroup = pd.concat(
+                evaluations, axis=1, keys=[f"Group_{i}" for i in range(1, n + 1)]
+            )
+
         except Exception as e:
             for idx, row in self._factor.iterrows():
-                pd.qcut(row, n, labels=False, duplicates="raise")
-
-        future = self._shifted.shift(-freq) / self._shifted - 1
-        feasible = (
-            feasible
-            if feasible is not None
-            else pd.DataFrame(
-                np.ones_like(future),
-                index=future.index,
-                columns=future.columns,
+                try:
+                    pd.qcut(row, n, labels=False, duplicates="raise")
+                except Exception as e:
+                    self._logger.critical(f"Error on {idx}: {e}")
+            self.value_ngroup = pd.DataFrame(
+                np.ones((self._price.shape[0], n)),
+                index=self._price.index,
+                columns=[f"Group_{i}" for i in range(1, n + 1)],
             )
-        )
-        weight = (
-            weight
-            if weight is not None
-            else pd.DataFrame(
-                np.ones_like(future), index=future.index, columns=future.columns
+            self.turnover_ngroup = pd.DataFrame(
+                np.zeros((self._price.shape[0], n)),
+                index=self._price.index,
+                columns=[f"Group_{i}" for i in range(1, n + 1)],
             )
-        )
-        weight = weight.where(feasible, 0)
+            self.evaluation_ngroup = pd.DataFrame()
 
-        values = []
-        turnovers = []
-        evaluations = []
-        for i in range(1, n + 1):
-            # filter weight
-            _weight = weight.where(groups == i, 0)
-            _weight = _weight.div(_weight.sum(axis=1), axis=0) / freq
-            # calculate turnover
-            turnover = _weight.diff(freq).abs()
-            turnover.iloc[:freq] = _weight.iloc[:freq]
-            turnover = turnover.sum(axis=1) / freq
-            # calculate returns
-            returns = (future * _weight).sum(axis=1) - commission * turnover
-            value = (returns.shift(1 + freq).fillna(0) + 1).cumprod()
-            values.append(value)
-            turnovers.append(turnover)
-            evaluations.append(
-                QuoolEvaluator.evaluate(value, benchmark=benchmark, turnover=turnover)
-            )
-
-        self.value_ngroup = pd.concat(
-            values, axis=1, keys=[f"Group_{i}" for i in range(1, n + 1)]
-        )
-        self.turnover_ngroup = pd.concat(
-            turnovers, axis=1, keys=[f"Group_{i}" for i in range(1, n + 1)]
-        )
-        self.evaluation_ngroup = pd.concat(
-            evaluations, axis=1, keys=[f"Group_{i}" for i in range(1, n + 1)]
-        )
         return self
 
     def __call__(
@@ -163,7 +181,7 @@ class Evaluator:
             .calc_topk_returns(k, freq, weight, feasible, benchmark, commission)
             .calc_ngroup_returns(n, freq, weight, feasible, benchmark, commission)
         )
-    
+
     def __str__(self):
         return (
             "Factor Evaluator(\n"
@@ -177,6 +195,6 @@ class Evaluator:
             f"\tevaluation_ngroup: \n{self.evaluation_ngroup}\n"
             ")"
         )
-    
+
     def __repr__(self):
         return self.__str__()

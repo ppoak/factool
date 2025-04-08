@@ -1,6 +1,6 @@
 import numpy as np
 import pandas as pd
-from .base import FactorManager
+from .factor import FactorManager
 
 
 class VolDistFactor(FactorManager):

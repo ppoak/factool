@@ -2,15 +2,14 @@
 # 因子测试
 import factorlab
 import numpy as np
+import pandas as pd
 from quool import ParquetManager, setup_logger
 
 
 # %% [markdown]
 # 参数设定
-factor_name = "nonlinear_market_size"  # The factor you want to analyze
-factor_path = (
-    "data/market_sizes"  # Path to the data folder (default is "data/price_volume")
-)
+factor_name = "naive_weekly_return_processed"  # The factor you want to analyze
+factor_path = "data/naive_return_momentum"  # Path to the data folder (default is "data/price_volume")
 price_path = "D:/Documents/DataBase/quotes_day"  # Path to the data folder (default is "data/price_volume")
 benchmark_path = "D:/Documents/DataBase/index_quotes_day"
 log_path = (
@@ -92,4 +91,18 @@ evaluator(
     feasible=feasible,
     benchmark=benchmark,
     commission=commission,
+)
+
+# %% [markdown]
+# 因子报告
+# 因子报告提供一表三图，有topk+ngroup、ic的测试结果
+# 分层测试可能失败，关注CRITICAL信息
+pd.concat([evaluator.ic, evaluator.ic.cumsum()], axis=1, keys=["raw", "cumsum"]).plot(
+    secondary_y="cumsum"
+)
+pd.concat([evaluator.value_topk.to_frame("topk"), evaluator.value_ngroup], axis=1).plot(
+    secondary_y="topk"
+)
+pd.concat(
+    [evaluator.evaluation_topk.to_frame("topk"), evaluator.evaluation_ngroup], axis=1
 )
