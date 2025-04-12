@@ -167,6 +167,9 @@ class ParquetFactorSource(FactorSource):
             factor = pd.concat([factor, df], axis=1).reset_index(names=["time", "code"])
             self.manager.update(factor)
 
+    def __str__(self):
+        return super().__str__() + "\n" + str(self.manager)
+
 
 class DuckDBFactorSource(FactorSource):
 

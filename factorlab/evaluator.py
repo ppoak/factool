@@ -2,6 +2,7 @@ import numpy as np
 import pandas as pd
 from logging import Logger
 from quool import setup_logger
+from joblib import Parallel, delayed
 from quool import Evaluator as QuoolEvaluator
 
 
@@ -25,16 +26,17 @@ class Evaluator:
             self._factor = self._factor.reindex(index=self._price.index, method="ffill")
         self._shifted = self._price.shift(-1)
 
-    def calc_info_coef(self, freq: int = 1, method: str = "spearman"):
+    def evaluate_info_coef(self, freq: int = 1, method: str = "spearman"):
         future = self._shifted.shift(-freq) / self._shifted - 1
         self.ic = self._factor.corrwith(future, axis=1, method=method)
         self._direction = np.sign(self.ic.mean())
         return self
 
-    def calc_topk_returns(
+    def evaluate_topk(
         self,
         k: int = 100,
         freq: int = 1,
+        rebalance: bool = True,
         weight: pd.DataFrame = None,
         feasible: pd.DataFrame = None,
         benchmark: pd.Series = None,
@@ -50,6 +52,7 @@ class Evaluator:
                 np.ones_like(future),
                 index=future.index,
                 columns=future.columns,
+                dtype="bool",
             )
         )
         weight = (
@@ -65,28 +68,30 @@ class Evaluator:
         # select top k weight
         weight = weight.where(rank <= k, 0)
         # unify weight, divide into freq parts to avoid difference when starting point differs
-        weight = weight.div(weight.sum(axis=1), axis=0) / freq
-        # calculate turnover
-        turnover = weight.diff(freq).abs()
-        turnover.iloc[:freq] = weight.iloc[:freq]
-        turnover = turnover.sum(axis=1)
-        # calculate returns
-        returns = (future * weight).sum(axis=1) - commission * turnover
-        self.value_topk = (returns.shift(1 + freq).fillna(0) + 1).cumprod()
-        self.turnover_topk = turnover
-        self.evaluation_topk = QuoolEvaluator.evaluate(
-            self.value_topk, benchmark, turnover
+        weight = weight.div(weight.sum(axis=1), axis=0)
+        if rebalance:
+            self.topk_result = QuoolEvaluator.evaluate_rebalance(
+                weight,
+                self._price,
+                freq,
+                benchmark,
+                commission,
+            )
+        self.topk_result = QuoolEvaluator.evaluate_index(
+            weight.shift(1).iloc[1:], self._price, freq, benchmark, commission
         )
         return self
 
-    def calc_ngroup_returns(
+    def evaluate_ngroup(
         self,
         n: int = 10,
         freq: int = 1,
+        rebalance: bool = True,
         weight: pd.DataFrame = None,
         feasible: pd.DataFrame = None,
         benchmark: pd.Series = None,
         commission: float = 0.0005,
+        n_jobs: int = -1,
     ):
         direction = getattr(self, "_direction", 1)
         try:
@@ -102,6 +107,7 @@ class Evaluator:
                     np.ones_like(future),
                     index=future.index,
                     columns=future.columns,
+                    dtype="bool",
                 )
             )
             weight = (
@@ -113,55 +119,37 @@ class Evaluator:
             )
             weight = weight.where(feasible, 0)
 
-            values = []
-            turnovers = []
-            evaluations = []
-            for i in range(1, n + 1):
+            def _calc_group(i: int):
                 # filter weight
                 _weight = weight.where(groups == i, 0)
-                _weight = _weight.div(_weight.sum(axis=1), axis=0) / freq
-                # calculate turnover
-                turnover = _weight.diff(freq).abs()
-                turnover.iloc[:freq] = _weight.iloc[:freq]
-                turnover = turnover.sum(axis=1) / freq
-                # calculate returns
-                returns = (future * _weight).sum(axis=1) - commission * turnover
-                value = (returns.shift(1 + freq).fillna(0) + 1).cumprod()
-                values.append(value)
-                turnovers.append(turnover)
-                evaluations.append(
-                    QuoolEvaluator.evaluate(
-                        value, benchmark=benchmark, turnover=turnover
+                _weight = _weight.div(_weight.sum(axis=1), axis=0)
+                if rebalance:
+                    return QuoolEvaluator.evaluate_rebalance(
+                        _weight,
+                        self._price,
+                        freq,
+                        benchmark,
+                        commission,
                     )
+                return QuoolEvaluator.evaluate_index(
+                    _weight.shift(1).iloc[1:],
+                    self._price,
+                    freq,
+                    benchmark,
+                    commission,
                 )
 
-            self.value_ngroup = pd.concat(
-                values, axis=1, keys=[f"Group_{i}" for i in range(1, n + 1)]
-            )
-            self.turnover_ngroup = pd.concat(
-                turnovers, axis=1, keys=[f"Group_{i}" for i in range(1, n + 1)]
-            )
-            self.evaluation_ngroup = pd.concat(
-                evaluations, axis=1, keys=[f"Group_{i}" for i in range(1, n + 1)]
+            self.ngroup_result = Parallel(n_jobs=n_jobs, backend="loky")(
+                delayed(_calc_group)(i) for i in range(1, n + 1)
             )
 
-        except Exception as e:
+        except ValueError as e:
             for idx, row in self._factor.iterrows():
                 try:
                     pd.qcut(row, n, labels=False, duplicates="raise")
                 except Exception as e:
                     self._logger.critical(f"Error on {idx}: {e}")
-            self.value_ngroup = pd.DataFrame(
-                np.ones((self._price.shape[0], n)),
-                index=self._price.index,
-                columns=[f"Group_{i}" for i in range(1, n + 1)],
-            )
-            self.turnover_ngroup = pd.DataFrame(
-                np.zeros((self._price.shape[0], n)),
-                index=self._price.index,
-                columns=[f"Group_{i}" for i in range(1, n + 1)],
-            )
-            self.evaluation_ngroup = pd.DataFrame()
+            self.ngroup_result = []
 
         return self
 
@@ -171,15 +159,18 @@ class Evaluator:
         n: int = 10,
         k: int = 100,
         freq: int = 1,
+        rebalance: bool = True,
         weight: pd.DataFrame = None,
         feasible: pd.DataFrame = None,
         benchmark: pd.Series = None,
         commission: float = 0.0005,
     ):
         return (
-            self.calc_info_coef(freq, method)
-            .calc_topk_returns(k, freq, weight, feasible, benchmark, commission)
-            .calc_ngroup_returns(n, freq, weight, feasible, benchmark, commission)
+            self.evaluate_info_coef(freq, method)
+            .evaluate_topk(k, freq, rebalance, weight, feasible, benchmark, commission)
+            .evaluate_ngroup(
+                n, freq, rebalance, weight, feasible, benchmark, commission
+            )
         )
 
     def __str__(self):
@@ -187,12 +178,8 @@ class Evaluator:
             "Factor Evaluator(\n"
             f"\tdirection: {self._direction}\n"
             f"\tinfo_coef: \n{self.ic}\n"
-            f"\tvalue_topk: \n{self.value_topk}\n"
-            f"\tturnover_topk: \n{self.turnover_topk}\n"
-            f"\tevaluation_topk: \n{self.evaluation_topk}\n"
-            f"\tvalue_ngroup: \n{self.value_ngroup}\n"
-            f"\tturnover_ngroup: \n{self.turnover_ngroup}\n"
-            f"\tevaluation_ngroup: \n{self.evaluation_ngroup}\n"
+            f"\ttopk_result: \n{self.topk_result}\n"
+            f"\tngroup_result: \n{self.ngroup_result}\n"
             ")"
         )
 
