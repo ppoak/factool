@@ -77,9 +77,10 @@ class Evaluator:
                 benchmark,
                 commission,
             )
-        self.topk_result = QuoolEvaluator.evaluate_index(
-            weight.shift(1).iloc[1:], self._price, freq, benchmark, commission
-        )
+        else:
+            self.topk_result = QuoolEvaluator.evaluate_index(
+                weight.shift(1).iloc[1:], self._price, freq, benchmark, commission
+            )
         return self
 
     def evaluate_ngroup(
