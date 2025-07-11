@@ -3,9 +3,9 @@ import pandas as pd
 from pathlib import Path
 from xtquant import xtdata
 from functools import partial
-from quool import ParquetManager
 from abc import ABC, abstractmethod
 from .operators import zscore, madoutlier
+from quool import ParquetManager, DuckDBManager
 
 
 class FactorSource(ABC):
@@ -174,47 +174,63 @@ class ParquetFactorSource(FactorSource):
 class DuckDBFactorSource(FactorSource):
 
     def __init__(self, path: str):
-        self._path = path
+        self.path = path
+        self.manager = DuckDBManager(path)
 
-    def get_times(self, begin: str = None, end: str = None):
+    def get_times(self, table: str, begin: str = None, end: str = None):
         begin = pd.to_datetime(begin or "1990-01-01").strftime(r"%Y%m%d")
         end = pd.to_datetime(end or "now").strftime(r"%Y%m%d")
-        with duckdb.connect(self._path) as con:
-            metadata = con.execute(
-                f"SELECT id, class FROM metadata LIMIT 1"
-            ).fetchone()[0]
-            code = con.execute(
-                f"SELECT code FROM {metadata[1]} WHERE id = ? LIMIT 1", (metadata[0],)
-            ).fetchone()[0]
-            times = con.execute(
-                f"SELECT DISTINCT time FROM {metadata[1]} WHERE code = ? AND id = ? AND time >= ? AND time <= ? ORDER BY time",
-                (code, metadata[0], begin, end),
-            ).fetchall()
+        times = self.manager.select(
+            table,
+            columns=["time"],
+            ands=["time >= ?", "time <= ?"],
+            params=(begin, end),
+            distinct=True,
+        ).squeeze()
         return pd.to_datetime(times)
 
-    def get_time(self, time: str, n: int):
+    def get_time(self, table: str, time: str, n: int):
         if n > 0:
-            return self.get_times(None, time)[-n:]
-        return self.get_times(time, None)[:n]
+            return self.get_times(table, None, time)[-n:]
+        return self.get_times(table, time, None)[:n]
 
     def get_factor(
-        self, name: str, begin: str = None, end: str = None, raw: bool = True
+        self,
+        table: str,
+        name: str,
+        begin: str = None,
+        end: str = None,
     ):
         begin = pd.to_datetime(begin or "1990-01-01")
         end = pd.to_datetime(end or "now")
-        value = "raw" if raw else "processed"
-        with duckdb.connect(self._path) as con:
-            _id, _class = con.execute(
-                f"SELECT id, class FROM metadata WHERE name = ?", (name,)
-            ).fetchone()
-            data = con.execute(
-                f"SELECT code, time, {value} FROM {_class} WHERE time >= ? AND time <= ? AND id = ?",
-                (begin, end, _id),
-            ).fetch_df()
-            data = data.pivot(index="time", columns="code", values=value)
+        data = self.manager.pivot(
+            table,
+            index="time",
+            columns="code",
+            value=name,
+            ands=["time >= ?", "time <= ?"],
+            params=(begin, end),
+        )
         return data
 
     def save(self, name: str, df: pd.DataFrame, processors: list[callable] = None):
-        raise NotImplementedError(
-            "Save method for DuckDBFactorSource is not implemented"
-        )
+        processors = processors or [zscore, partial(madoutlier, dev=5)]
+        if df.index.nlevels == 1:
+            for processor in processors:
+                processed = processor(df)
+            df = pd.concat(
+                [processed.stack(), df.stack().to_frame("_processed")], axis=1
+            ).reset_index(names=["time", "code"])
+            self.manager.upsert(factor, name)
+
+        elif df.index.nlevels == 2:
+            factors = [df[col].unstack() for col in df.columns]
+            for processor in processors:
+                factors = [processor(factor) for factor in factors]
+            factor = pd.concat(
+                [factor.stack() for factor in factors],
+                keys=df.columns + "_processed",
+                axis=1,
+            )
+            factor = pd.concat([factor, df], axis=1).reset_index(names=["time", "code"])
+            self.manager.upsert(factor, name)
