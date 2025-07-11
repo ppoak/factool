@@ -1,29 +1,24 @@
-# %% [markdown]
-# # Factor Calculation
 import contrib
 import factorlab
 import pandas as pd
+from tqdm import tqdm
+from joblib import Parallel, delayed
 
-# %% [markdown]
-# ## 1. Factor Definition
-# Currently, all factor definition should be written in contrib
-day = factorlab.ParquetFactorSource("D:/Documents/DataBase/quotes_day")
-minute = factorlab.ParquetFactorSource("D:/Documents/DataBase/quotes_min")
-calculator = contrib.MomentumReverse([day, minute])
 
-# %% [markdown]
-# ## 2. Factor Calculation
-factor_name = "decomposed_momentum"
-data = calculator.calc(factor_name, day.get_times("2015-01-01", "now"), n_jobs=-1)
+def calc(name: str, times: list, n_jobs: int = -1):
+    result = Parallel(n_jobs=n_jobs, backend="loky")(
+        delayed(getattr(contrib, "calc_" + name))(date) for date in tqdm(list(times))
+    )
+    if isinstance(result[0], pd.Series):
+        return pd.concat(result, axis=1, keys=times).T.sort_index()
+    elif isinstance(result[0], pd.DataFrame):
+        return pd.concat(result, axis=0, keys=times).sort_index()
 
-# %% [markdown]
-# ## 3. Save Factor
-dumper = factorlab.ParquetFactorSource(
-    f"data/{factor_name}",
-    grouper=pd.Grouper(key="time", freq="ME"),
-)
-dumper.save(data)
 
-# %% [markdown]
-# ## 4. Load Factor
-dumper.get_factor("nonrecent_weekly_return_processed", begin="2025-01-01", end="now")
+factor_name = "market_sizes"
+source_db = factorlab.DuckDBFactorSource("D:/Documents/database.duckdb")
+times = source_db.get_times("quotes_day", "2015-01-01", "now")
+factor_data = calc(factor_name, times)
+
+factor_db = factorlab.DuckDBFactorSource("data/test.duckdb")
+factor_db.save(factor_name, factor_data)
