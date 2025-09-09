@@ -1,8 +1,7 @@
 from .source import (
     FactorSource,
-    XtFactorSource,
     ParquetFactorSource,
-    DuckDBFactorSource,
+    DuckParquetSource,
 )
 
 from .evaluator import Evaluator

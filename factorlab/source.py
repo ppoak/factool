@@ -1,11 +1,10 @@
 import duckdb
 import pandas as pd
 from pathlib import Path
-from xtquant import xtdata
 from functools import partial
 from abc import ABC, abstractmethod
 from .operators import zscore, madoutlier
-from quool import ParquetManager, DuckDBManager
+from quool import ParquetManager, DuckParquet
 
 
 class FactorSource(ABC):
@@ -33,45 +32,100 @@ class FactorSource(ABC):
         return self.__str__()
 
 
-class XtFactorSource(FactorSource):
+class DuckParquetSource(FactorSource):
 
-    def __init__(self, path: str, sector: str = "沪深A股", period: str = "1d"):
-        xtdata.data_dir = path
-        self._stock_list = xtdata.get_stock_list_in_sector(sector)
-        self._period = period
+    def __init__(
+        self,
+        dataset_path: str,
+        time_col: str = "time",
+        code_col: str = "code",
+        name: str = None,
+        db_path: str = None,
+        threads: int = 4,
+    ) -> None:
+        self.dp = DuckParquet(dataset_path, name, db_path, threads)
+        self.time_col = time_col
+        self.code_col = code_col
 
-    def get_times(self, begin: str = None, end: str = None):
-        begin = pd.to_datetime(begin or "1990-01-01").strftime(r"%Y%m%d")
-        end = pd.to_datetime(end or "now").strftime(r"%Y%m%d")
-        data = xtdata.get_market_data_ex(
-            ["time"], stock_list=["000001.SZ"], start_time=begin, end_time=end
-        )
-        return pd.to_datetime(data["000001.SZ"].index)
+    def get_times(self, begin: str = None, end: str = None, time_col: str = "time"):
+        times = self.dp.select(
+            columns=f"{time_col} AS time",
+            where="time >= ? AND time <= ?",
+            params=[
+                pd.to_datetime(begin or "1990-01-01"),
+                pd.to_datetime(end or "now"),
+            ],
+            distinct=True,
+            order_by="time",
+        ).squeeze()
+        return pd.to_datetime(times)
 
     def get_time(self, time: str, n: int):
         if n > 0:
             return self.get_times(None, time)[-n:]
-        return self.get_times(time, None)[:n]
+        return self.get_times(time, None)[:-n]
 
-    def get_factor(self, name: str, begin: str = None, end: str = None):
-        begin = pd.to_datetime(begin or "1990-01-01").strftime(r"%Y%m%d")
-        end = pd.to_datetime(end or "now").strftime(r"%Y%m%d")
-        factor = xtdata.get_market_data_ex(
-            [name],
-            stock_list=self._stock_list,
-            period=self._period,
-            start_time=begin,
-            end_time=end,
-            dividend_type="back",
-        )
-        factor = pd.concat(
-            [f[name] for f in factor.values()], axis=1, keys=factor.keys()
-        )
-        factor.index = pd.to_datetime(factor.index)
-        return factor
+    def get_factor(
+        self,
+        name: str,
+        begin: pd.Timestamp | str = None,
+        end: pd.Timestamp | str = None,
+    ) -> pd.DataFrame:
+        begin = pd.to_datetime(begin or "2000-01-01")
+        end = pd.to_datetime(end or "now")
+        return self.dp.dpivot(
+            index=self.time_col,
+            columns=self.code_col,
+            values=name,
+            where=f"{self.time_col} >= '{begin}' AND {self.time_col} <= '{end}'",
+            order_by=self.time_col,
+        ).set_index(self.time_col)
 
-    def save(self, name: str, df: pd.DataFrame):
-        raise ValueError("XtFactorSource does not support save operation")
+    def save(
+        self,
+        df: pd.DataFrame,
+        name: str = "factor",
+        processors: list[callable] = None,
+    ):
+        processors = processors or [zscore, partial(madoutlier, dev=5)]
+        names = "__".join(
+            [
+                (
+                    processor.__name__
+                    if not isinstance(processor, partial)
+                    else processor.func.__name__
+                    + "_"
+                    + "_".join([f"{k}{v}" for k, v in processor.keywords.items()])
+                )
+                for processor in processors
+            ]
+        )
+        if df.index.nlevels == 1:
+            for processor in processors:
+                processed = processor(df)
+            factor = pd.concat(
+                [processed.stack(), df.stack()],
+                keys=[name, f"{name}__{names}"],
+                axis=1,
+            ).reset_index(names=[self.time_col, self.code_col])
+
+        elif df.index.nlevels == 2:
+            factors = [df[col].unstack() for col in df.columns]
+            for processor in processors:
+                factors = [processor(factor) for factor in factors]
+            factor = pd.concat(
+                [df]
+                + [
+                    factor.stack().to_frame(df.columns[i] + f"__{names}")
+                    for i, factor in enumerate(factors)
+                ],
+                axis=1,
+            ).reset_index(names=[self.time_col, self.code_col])
+
+        factor["date"] = factor[self.time_col].dt.strftime("%Y-%m-%d")
+        self.dp.upsert_from_df(
+            factor, keys=[self.time_col, self.code_col], partition_by=["date"]
+        )
 
 
 class ParquetFactorSource(FactorSource):
@@ -83,6 +137,9 @@ class ParquetFactorSource(FactorSource):
         code_col: str = "code",
         grouper: str = None,
     ):
+        print(
+            "Warning: ParquetFactorSource will soon be depreciated in higher version, please use DuckParquetSource instead."
+        )
         self.path = Path(path)
         self.manager = ParquetManager(
             self.path,
