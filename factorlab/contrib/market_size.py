@@ -1,10 +1,12 @@
+import os
 import numpy as np
 import pandas as pd
 import statsmodels.api as sm
-from factorlab.source import FactorSource
+from ..source import DuckParquetSource
 
 
-def calc_market_sizes(source: FactorSource, time: str | pd.Timestamp) -> pd.Series:
+def calc_market_sizes(time: str | pd.Timestamp) -> pd.Series:
+    source = DuckParquetSource(os.getenv("QUOTESDAY_PATH"))
     shares = source.get_factor("circulation_a", begin=time, end=time)
     price = source.get_factor("close_post", begin=time, end=time)
     log = np.log(shares * price).squeeze()
