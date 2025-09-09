@@ -1,3 +1,7 @@
+from .contrib import (
+    calc_market_sizes
+)
+
 from .source import (
     FactorSource,
     ParquetFactorSource,
