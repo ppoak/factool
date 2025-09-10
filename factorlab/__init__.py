@@ -1,5 +1,5 @@
 from .contrib import (
-    calc_market_sizes
+    calc_market_size
 )
 
 from .source import (
