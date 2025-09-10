@@ -23,6 +23,8 @@ dependencies = [
     "pandas",
     "joblib",
     "statsmodels",
+    "typing>=3.10.0.0",
+    "openai>=1.107.0",
 ]
 
 [project.urls]
