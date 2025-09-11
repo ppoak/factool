@@ -65,6 +65,11 @@ class DuckParquetSource(FactorSource):
             return self.get_times(None, time)[-n:]
         return self.get_times(time, None)[:-n]
 
+    def get_all_factors(self) -> pd.DataFrame:
+        schema = self.dp.get_schema()
+        schema = schema[~schema["column_name"].isin([self.time_col, self.code_col])]
+        return schema
+
     def get_factor(
         self,
         name: str,

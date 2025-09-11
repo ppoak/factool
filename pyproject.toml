@@ -24,7 +24,9 @@ dependencies = [
     "joblib",
     "statsmodels",
     "typing>=3.10.0.0",
-    "openai>=1.107.0",
+    "openai>=1.107.1",
+    "openai-agents>=0.2.11",
+    "duckdb>=1.3.2",
 ]
 
 [project.urls]
