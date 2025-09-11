@@ -6,6 +6,7 @@ import uuid
 
 from agents import (
     Agent,
+    ItemHelpers,
     ModelSettings,
     Runner,
     SQLiteSession,
@@ -17,9 +18,9 @@ from agents import (
 from dotenv import load_dotenv
 from markdown_it import MarkdownIt
 from openai import AsyncOpenAI
-from openai.types.responses import ResponseTextDeltaEvent
 
 from factorlab import DuckParquetSource
+from quool import setup_logger
 
 
 def setup_environment():
@@ -42,7 +43,12 @@ def get_all_dataset() -> str:
 
 def get_duckparquet_schema(dp_path: str) -> str:
     """获取dp_path对应的数据表中可用的因子/数据列信息"""
-    duckparquet = DuckParquetSource(Path(os.getenv("DATASET_PATH")) / dp_path)
+    dp_path = Path(os.getenv("DATASET_PATH")) / dp_path
+    if not dp_path.exists():
+        raise ValueError(
+            f"The target path: {dp_path} does not exist, please try something valid in the result of `get_all_dataset`"
+        )
+    duckparquet = DuckParquetSource(dp_path)
     return duckparquet.get_all_factors().to_markdown()
 
 
@@ -74,9 +80,12 @@ def get_section_content(md_text: str, factor_names: list[str]):
     return "\n\n".join(filter(None, results))
 
 
-async def run_agent(md_path, factor_names, output_path=None):
+async def run_agent(
+    md_path: str, factor_names: str, output_path: str = None, db_path: str = None
+):
+    logger = setup_logger("agents")
     setup_environment()
-    session = SQLiteSession(uuid.uuid4().hex, db_path="data/test.db")
+    session = SQLiteSession(uuid.uuid4().hex, db_path=db_path or ":memory:")
     codegen_agent = Agent(
         name="Code Generate Agent",
         instructions=Path("docs/code_gen_agent.md").read_text(encoding="utf-8"),
@@ -90,11 +99,27 @@ async def run_agent(md_path, factor_names, output_path=None):
         get_section_content(Path(md_path).read_text(encoding="utf-8"), factor_names),
     )
     async for event in result.stream_events():
-        if event.type == "raw_response_event" and isinstance(
-            event.data, ResponseTextDeltaEvent
-        ):
-            print(event.data.delta, end="", flush=True)
-    if output_path is None:
+        # We'll ignore the raw responses event deltas
+        if event.type == "raw_response_event":
+            continue
+        # When the agent updates, print that
+        elif event.type == "agent_updated_stream_event":
+            logger.debug(f"Agent updated: {event.new_agent.name}")
+            continue
+        # When items are generated, print them
+        elif event.type == "run_item_stream_event":
+            if event.item.type == "tool_call_item":
+                logger.info(
+                    f"Tool was called: {event.item.raw_item.name}(**{event.item.raw_item.arguments})"
+                )
+            elif event.item.type == "tool_call_output_item":
+                logger.info(f"-- Tool output: \n{event.item.output}")
+            elif event.item.type == "message_output_item":
+                logger.info(
+                    f"-- Message output:\n {ItemHelpers.text_message_output(event.item)}"
+                )
+            else:
+                pass  # Ignore other event types    if output_path is None:
         output_file_name = Path(md_path).stem + ".py"
         output_dir = Path("factor/contrib")
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -109,20 +134,28 @@ def main():
         "names", type=str, help="因子名称(用逗号分隔, 如 '因子A,因子B')"
     )
     parser.add_argument(
+        "-o",
         "--output_path",
         type=str,
         default=None,
         help="输出因子代码的文件路径，默认为 factor/contrib/与md文件同名的py后缀文件。",
+    )
+    parser.add_argument(
+        "-d",
+        "--db_path",
+        type=str,
+        default=None,
+        help="存储对话的路径，默认采用内存存储，程序运行后自动删除。",
     )
     args = parser.parse_args()
 
     md_path = args.path
     factor_names = [name.strip() for name in args.names.split(",") if name.strip()]
     output_path = args.output_path
+    db_path = args.db_path
 
-    asyncio.run(run_agent(md_path, factor_names, output_path))
+    asyncio.run(run_agent(md_path, factor_names, output_path, db_path))
 
 
 if __name__ == "__main__":
     main()
-
