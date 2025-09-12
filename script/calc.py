@@ -21,7 +21,7 @@ def calc(name: str, times: list, n_jobs: int = -1):
 load_dotenv()
 factor_name = "market_size"
 source = factorlab.DuckParquetSource(os.getenv("QUOTESDAY_PATH"))
-times = source.get_times("2015-01-01", "now")
+times = source.get_times("2015-01-02", "now")
 factor_data = calc(factor_name, times, 14)
 
 factor_db = factorlab.DuckParquetSource(
