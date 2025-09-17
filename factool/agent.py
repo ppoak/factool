@@ -19,7 +19,7 @@ from dotenv import load_dotenv
 from markdown_it import MarkdownIt
 from openai import AsyncOpenAI
 
-from factorlab import DuckParquetSource
+from factool import DuckParquetSource
 from quool import setup_logger
 
 

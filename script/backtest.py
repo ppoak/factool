@@ -1,6 +1,6 @@
 # %% [markdown]
 # 因子测试
-import factorlab
+import factool
 import numpy as np
 import pandas as pd
 from quool import ParquetManager, setup_logger
@@ -77,14 +77,14 @@ else:
 
 # %% [markdown]
 # 因子数据读取
-factor_source = factorlab.ParquetFactorSource(
+factor_source = factool.ParquetFactorSource(
     factor_path, time_col=time_col, code_col=code_col
 )
 factor_data = factor_source.get_factor(factor_name, begin=begin, end=end)
 
 # %% [markdown]
 # 因子回测
-evaluator = factorlab.Evaluator(
+evaluator = factool.Evaluator(
     factor=factor_data,
     price=price,
     logger=logger,

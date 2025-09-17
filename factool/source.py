@@ -1,4 +1,3 @@
-import duckdb
 import pandas as pd
 from pathlib import Path
 from functools import partial

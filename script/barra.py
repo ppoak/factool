@@ -1,7 +1,7 @@
 import quool
 import numpy as np
 import pandas as pd
-import factorlab as lab
+import factool as lab
 import dataforge as forge
 class BarraReturn(quool.DatetimeTable, lab.Factor):
 

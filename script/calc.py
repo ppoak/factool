@@ -1,5 +1,5 @@
 import os
-import factorlab
+import factool
 import pandas as pd
 from tqdm import tqdm
 from pathlib import Path
@@ -9,7 +9,7 @@ from joblib import Parallel, delayed
 
 def calc(name: str, times: list, n_jobs: int = -1):
     result = Parallel(n_jobs=n_jobs, backend="loky")(
-        delayed(getattr(factorlab.contrib, "calc_" + name))(date)
+        delayed(getattr(factool.contrib, "calc_" + name))(date)
         for date in tqdm(list(times))
     )
     if isinstance(result[0], pd.Series):
@@ -20,11 +20,11 @@ def calc(name: str, times: list, n_jobs: int = -1):
 
 load_dotenv()
 factor_name = "market_size"
-source = factorlab.DuckParquetSource(os.getenv("QUOTESDAY_PATH"))
+source = factool.DuckParquetSource(os.getenv("QUOTESDAY_PATH"))
 times = source.get_times("2015-01-02", "now")
 factor_data = calc(factor_name, times, 14)
 
-factor_db = factorlab.DuckParquetSource(
+factor_db = factool.DuckParquetSource(
     Path(os.getenv("FACTORLAB_BASE_PATH")) / factor_name
 )
 factor_db.save(factor_data)
