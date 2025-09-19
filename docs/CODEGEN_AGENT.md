@@ -8,32 +8,22 @@
 - 代码需包含所有必要的import、函数定义和返回部分，例如下面的代码块：
 
 ```python
-import os
-import pandas as pd
-from typing import Union
-from ..source import DuckParquetSource
-
 def calc_factorname(time: Union[str, pd.Timestamp]) -> Union[pd.Series, pd.DataFrame]:
     ...
     return ...
 ```
 
 - 不要输出markdown格式，只输出纯代码（不要```python标记，也不要文字说明）。
-- 只生成一个calc_因子名函数，每次只针对一个因子。
+- 只生成一个calc_因子名函数，不论输入是多少个因子，都只生成一个函数；如果输入是多个因子，。
 
-## Reference And Illustrations
+## Reference
 
-- 参考代码如下：
+- 参考代码如下，改代码为对应给定log_market_size、nonlinear_market_size两个因子和定义后生成的示范回答。
 
 ```python
-import os
-import numpy as np
-import pandas as pd
-import statsmodels.api as sm
-from ..source import DuckParquetSource
+def calc_market_size(time: Union[str, pd.Timestamp]) -> pd.DataFrame:
+    import statsmodels.api as sm
 
-
-def calc_market_size(time: str | pd.Timestamp) -> pd.Series:
     source = DuckParquetSource(os.getenv("QUOTESDAY_PATH"), time_col="date")
     shares = source.get_factor("circulation_a", begin=time, end=time)
     price = source.get_factor("close_post", begin=time, end=time)
@@ -45,7 +35,15 @@ def calc_market_size(time: str | pd.Timestamp) -> pd.Series:
     )
 ```
 
+## Illustrations
+
 - 说明：
     - 在编码前请根据计算步骤明确需要的数据源有哪些，并使用工具获取可用数据源及数据源对应的信息。如果存在计算因子的数据源未在可用数据源中找到，直接告诉用户无法完成这个需求，列明原因。
     - 所有因子函数命名须符合规范：calc_<因子名>
     - 因子数据源source可获取指定时间范围内的因子值，以pd.DataFrame的形式返回宽表（列为股票代码，行为时间索引）。
+
+- 注意：
+    - DuckParquetSource本质是以DuckDB作为操作引擎，Parquet文件为底层存储的一组Paruqet文件目录。分区列为date，所以在设定初始化DuckParquetSource时，选用time_col="date"为最佳性能实践。
+    - 尽管分区列为date，但所有数据源都另外提供列time，对于日线数据，时间点为00:00:00；对于分钟线，时间点为每个交易分钟。但date均为交易日的零点的时间戳。
+    - 所有数据源通过get_factor得到的返回结果均为一个以pd.DatetimeIndex索引的宽表，列为股票代码，值为get_factor参数的因子值。
+    - 尽可能采用

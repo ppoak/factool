@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 from logging import Logger
-from quool import setup_logger
+from parquool import setup_logger
 from joblib import Parallel, delayed
 from quool import Evaluator as QuoolEvaluator
 

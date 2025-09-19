@@ -29,7 +29,11 @@ dependencies = [
     "statsmodels>=0.14.5",
     "quool>=7.0.11",
     "numpy>=2.2",
+    "parquool>=0.0.1",
 ]
+
+[project.scripts]
+factool = "factool.agent:main"
 
 [[tool.uv.index]]
 url = "https://pypi.tuna.tsinghua.edu.cn/simple"

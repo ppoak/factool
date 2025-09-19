@@ -193,6 +193,7 @@ dependencies = [
     { name = "openai" },
     { name = "openai-agents" },
     { name = "pandas" },
+    { name = "parquool" },
     { name = "quool" },
     { name = "statsmodels" },
     { name = "typing" },
@@ -208,6 +209,7 @@ requires-dist = [
     { name = "openai", specifier = ">=1.107.1" },
     { name = "openai-agents", specifier = ">=0.2.11" },
     { name = "pandas", specifier = ">=2.3.2" },
+    { name = "parquool", specifier = ">=0.0.1" },
     { name = "quool", specifier = ">=7.0.11" },
     { name = "statsmodels", specifier = ">=0.14.5" },
     { name = "typing", specifier = ">=3.10.0.0" },
@@ -595,6 +597,24 @@ wheels = [
     { url = "https://pypi.tuna.tsinghua.edu.cn/packages/15/d5/f0486090eb18dd8710bf60afeaf638ba6817047c0c8ae5c6a25598665609/pandas-2.3.2-cp313-cp313t-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:b37205ad6f00d52f16b6d09f406434ba928c1a1966e2771006a9033c736d30d2", size = 11883216, upload-time = "2025-08-21T10:27:59.302Z" },
     { url = "https://pypi.tuna.tsinghua.edu.cn/packages/10/86/692050c119696da19e20245bbd650d8dfca6ceb577da027c3a73c62a047e/pandas-2.3.2-cp313-cp313t-musllinux_1_2_aarch64.whl", hash = "sha256:837248b4fc3a9b83b9c6214699a13f069dc13510a6a6d7f9ba33145d2841a012", size = 12699743, upload-time = "2025-08-21T10:28:02.447Z" },
     { url = "https://pypi.tuna.tsinghua.edu.cn/packages/cd/d7/612123674d7b17cf345aad0a10289b2a384bff404e0463a83c4a3a59d205/pandas-2.3.2-cp313-cp313t-musllinux_1_2_x86_64.whl", hash = "sha256:d2c3554bd31b731cd6490d94a28f3abb8dd770634a9e06eb6d2911b9827db370", size = 13186141, upload-time = "2025-08-21T10:28:05.377Z" },
+]
+
+[[package]]
+name = "parquool"
+version = "0.0.1"
+source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }
+dependencies = [
+    { name = "duckdb" },
+    { name = "joblib" },
+    { name = "markdown" },
+    { name = "numpy" },
+    { name = "pandas" },
+    { name = "requests" },
+    { name = "retry" },
+]
+sdist = { url = "https://pypi.tuna.tsinghua.edu.cn/packages/06/cd/500905dd4ec8c20419fb334dd4ac3c92e32770d945567e7fef8ce75dd35b/parquool-0.0.1.tar.gz", hash = "sha256:0acea969a38e198351f92037cf8c83e200e78a88d1c3e9719a01262084e21530", size = 12261, upload-time = "2025-09-18T13:18:18.31Z" }
+wheels = [
+    { url = "https://pypi.tuna.tsinghua.edu.cn/packages/04/27/601d49704df62ef1fd7572c49efa92ab4e57047fbc53fcdd97e5da212bc9/parquool-0.0.1-py3-none-any.whl", hash = "sha256:4b79223d0d02ec62d488b605de168f7c42c5d4910def37095a18966d531baa5d", size = 12030, upload-time = "2025-09-18T13:18:17.362Z" },
 ]
 
 [[package]]
