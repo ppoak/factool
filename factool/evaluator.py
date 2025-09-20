@@ -178,7 +178,7 @@ class Evaluator:
         return (
             "Factor Evaluator(\n"
             f"\tdirection: {self._direction}\n"
-            f"\tinfo_coef: \n{self.ic}\n"
+            f"\tic: \n{self.ic}\n"
             f"\ttopk_result: \n{self.topk_result}\n"
             f"\tngroup_result: \n{self.ngroup_result}\n"
             ")"
