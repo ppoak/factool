@@ -1,6 +1,5 @@
 from .source import (
     FactorSource,
-    ParquetFactorSource,
     DuckParquetSource,
 )
 
