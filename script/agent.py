@@ -71,26 +71,27 @@ class FactorAgent(BaseAgent):
     async def run(
         self,
         md_path: str,
-        factor_names: str,
-        output_path: str = None,
-        db_path: str = None,
+        output_path: str,
+        db_path: str,
+        save_path: str,
     ):
         md_path = Path(md_path)
-        prompt = self.get_section_content(
-            md_path.read_text(encoding="utf-8"), factor_names
-        )
+        prompt = md_path.read_text(encoding="utf-8")
         result = await super().run_streamed(prompt, db_path=db_path)
-        output_dir = Path("contrib")
+        output_dir = Path(output_path)
         output_dir.mkdir(parents=True, exist_ok=True)
         output_path = output_dir / f"{md_path.stem}_generated.py"
         Path(output_path).write_text(result, encoding="utf-8")
+        self.logger.info(f"因子代码已保存至 {output_path}")
+        if save_path:
+            pass
 
 
 def main():
     parser = argparse.ArgumentParser(description="自动生成因子定义代码")
     parser.add_argument("doc_path", type=str, help="因子定义的 Markdown 文件路径")
     parser.add_argument(
-        "factor_names", type=str, help="因子名称(用逗号分隔, 如 '因子A,因子B')"
+        "output_path", type=str, default=None, help="输出因子的 Python 文件路径"
     )
     parser.add_argument(
         "-d",
@@ -99,17 +100,23 @@ def main():
         default=None,
         help="存储对话的路径，默认采用内存存储，程序运行后自动删除。",
     )
+    parser.add_argument(
+        "-s", "--save_path", type=str, default=None, help="输出因子数据的路径"
+    )
     args = parser.parse_args()
 
     doc_path = args.doc_path
-    factor_names = [
-        name.strip() for name in args.factor_names.split(",") if name.strip()
-    ]
-    db_path = args.db_path
+    db_path = args.db_path or os.getenv("DB_PATH")
+    output_path = args.output_path or os.getenv("FACTORPY_PATH")
+    save_path = args.save_path or os.getenv("FACTORLAB_PATH")
 
     asyncio.run(
         FactorAgent(
             tools=[FactorAgent.get_all_dataset, FactorAgent.get_duckparquet_schema],
             instructions=Path("docs/CODEGEN_AGENT.md").read_text(encoding="utf-8"),
-        ).run(doc_path, factor_names, db_path)
+        ).run(doc_path, output_path, db_path)
     )
+
+
+if __name__ == "__main__":
+    main()
