@@ -3,12 +3,11 @@ import argparse
 import asyncio
 from pathlib import Path
 
-import pandas as pd
 from calc import calc
 from evaluate import evaluate
 from agents import function_tool
 from factool import DuckParquetSource
-from parquool import BaseAgent, DuckParquet
+from parquool import BaseAgent
 
 
 class FactorAgent(BaseAgent):
