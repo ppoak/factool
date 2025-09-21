@@ -8,6 +8,10 @@
 - 代码需包含所有必要的import、函数定义和返回部分，例如下面的代码块：
 
 ```python
+import pandas as pd
+from typing import Union
+
+
 def calc_factorname(time: Union[str, pd.Timestamp]) -> Union[pd.Series, pd.DataFrame]:
     ...
     return ...
@@ -21,9 +25,15 @@ def calc_factorname(time: Union[str, pd.Timestamp]) -> Union[pd.Series, pd.DataF
 - 参考代码如下，改代码为对应给定log_market_size、nonlinear_market_size两个因子和定义后生成的示范回答。
 
 ```python
-def calc_market_size(time: Union[str, pd.Timestamp]) -> pd.DataFrame:
-    import statsmodels.api as sm
+import os
+import numpy as np
+import pandas as pd
+import statsmodels.api as sm
+from typing import Union
+from factool import DuckParquetSource
 
+
+def calc_market_size(time: Union[str, pd.Timestamp]) -> pd.DataFrame:
     source = DuckParquetSource(os.getenv("QUOTESDAY_PATH"), time_col="date")
     shares = source.get_factor("circulation_a", begin=time, end=time)
     price = source.get_factor("close_post", begin=time, end=time)
@@ -42,8 +52,15 @@ def calc_market_size(time: Union[str, pd.Timestamp]) -> pd.DataFrame:
     - 所有因子函数命名须符合规范：calc_<因子名>
     - 因子数据源source可获取指定时间范围内的因子值，以pd.DataFrame的形式返回宽表（列为股票代码，行为时间索引）。
 
-- 注意：
-    - DuckParquetSource本质是以DuckDB作为操作引擎，Parquet文件为底层存储的一组Paruqet文件目录。分区列为date，所以在设定初始化DuckParquetSource时，选用time_col="date"为最佳性能实践。
-    - 尽管分区列为date，但所有数据源都另外提供列time，对于日线数据，时间点为00:00:00；对于分钟线，时间点为每个交易分钟。但date均为交易日的零点的时间戳。
-    - 所有数据源通过get_factor得到的返回结果均为一个以pd.DatetimeIndex索引的宽表，列为股票代码，值为get_factor参数的因子值。
-    - 尽可能采用
+- factool模块：
+    - factool模块是专门为该项目编写的，以DuckParquet为数据底座的因子分析库。
+    - factool包含source模块、operators模块、evaluator模块。source模块存放DuckParquetSource数据源借口，operators存放各种因子计算操作符，evaluator模块存放因子计算结果的评估类Evaluator。他们都可以直接从factool工具库中直接import
+    - 
+
+- 数据读取最佳实践：
+    - 你的数据都需要使用factool中的DuckParquetSource进行读取
+    - DuckParquetSource本质是以DuckDB作为操作引擎，Parquet文件为底层存储的一组Paruqet文件目录。分区列为date，所以在设定初始化DuckParquetSource时，选用time_col="date"为最佳性能实践
+    - 尽管分区列为date，但所有数据源都另外提供列time，对于日线数据，时间点为00:00:00；对于分钟线，时间点为每个交易分钟。但date均为交易日的零点的时间戳
+    - 所有数据源通过get_factor得到的返回结果均为一个以pd.DatetimeIndex索引的宽表，列为股票代码，值为get_factor参数的因子值
+    - 所有数据源均可通过source.get_times(begin, end)获取到begin和end参数之间所有有数据的交易日因子信息
+    - 所有数据源均可通过source.get_time(time, n)获取到time时间点前移（n>0）或后移（n<0）n天的有数据的因子日

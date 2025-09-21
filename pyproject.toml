@@ -30,6 +30,8 @@ dependencies = [
     "quool>=7.0.11",
     "numpy>=2.2",
     "parquool>=0.0.1",
+    "matplotlib>=3.9",
+    "openpyxl>=3.0",
 ]
 
 [project.scripts]

@@ -1,13 +1,14 @@
 import os
-import ast
 import argparse
 import asyncio
 from pathlib import Path
 
-from markdown_it import MarkdownIt
+import pandas as pd
+from calc import calc
+from evaluate import evaluate
 from agents import function_tool
 from factool import DuckParquetSource
-from parquool import BaseAgent
+from parquool import BaseAgent, DuckParquet
 
 
 class FactorAgent(BaseAgent):
@@ -30,93 +31,92 @@ class FactorAgent(BaseAgent):
         duckparquet = DuckParquetSource(dp_path)
         return duckparquet.get_all_factors().to_markdown()
 
-    @staticmethod
-    def simple_validate(code):
-        tree = ast.parse(code)
-        for node in ast.walk(tree):
-            if isinstance(
-                node,
-                (ast.Import, ast.ImportFrom, ast.Global, ast.Nonlocal, ast.Attribute),
-            ):
-                raise ValueError(f"不允许的语法节点: {type(node).__name__}")
-
-    @staticmethod
-    def get_section_content(md_text: str, factor_names: list[str]):
-        md = MarkdownIt()
-        tokens = md.parse(md_text)
-        results = []
-
-        for factor_name in factor_names:
-            found = False
-            result = []
-            current_level = None
-            for i, token in enumerate(tokens):
-                if token.type == "heading_open":
-                    current_level = int(token.tag[1])
-                    heading_content = tokens[i + 1].content
-                    if factor_name in heading_content:
-                        result.append(heading_content)
-                        found = True
-                        level = current_level
-                        continue
-                    if found and current_level == level:
-                        break
-                elif found:
-                    if token.type == "paragraph_open":
-                        paragraph = tokens[i + 1]
-                        result.append(paragraph.content)
-            results.append("\n\n".join(result))
-        return "\n\n".join(filter(None, results))
-
     async def run(
         self,
-        md_path: str,
-        output_path: str,
-        db_path: str,
-        save_path: str,
+        doc: str,
+        factorpy: str,
+        database: str,
+        begin: str,
+        end: str,
+        save: str,
+        evaluation: str,
     ):
-        md_path = Path(md_path)
-        prompt = md_path.read_text(encoding="utf-8")
-        result = await super().run_streamed(prompt, db_path=db_path)
-        output_dir = Path(output_path)
+        doc = Path(doc)
+        prompt = f"现在，请你根据如下因子定义，按照指示开始编写名为{doc.stem}的因子定义函数\n\n" + doc.read_text(
+            encoding="utf-8"
+        )
+        result = await super().run_streamed(prompt, db_path=database)
+        output_dir = Path(factorpy)
         output_dir.mkdir(parents=True, exist_ok=True)
-        output_path = output_dir / f"{md_path.stem}_generated.py"
-        Path(output_path).write_text(result, encoding="utf-8")
+        output_path = output_dir / f"{doc.stem}.py"
+        Path(output_path).write_text(result.final_output, encoding="utf-8")
         self.logger.info(f"因子代码已保存至 {output_path}")
-        if save_path:
-            pass
+        if save:
+            calc(
+                output_path,
+                begin,
+                end,
+                save_path=Path(os.getenv("FACTORLAB_PATH")) / doc.stem,
+            )
+            self.logger.info(f"因子数据已保存至 {save}")
+        if evaluation:
+            evaluators = evaluate(
+                factor_path=Path(os.getenv("FACTORLAB_PATH")) / doc.stem,
+                price_path=os.getenv("QUOTESDAY_PATH"),
+                benchmark_path=os.getenv("INDEXQUOTESDAY_PATH"),
+                output_path=Path(os.getenv("EVAL_PATH")),
+                begin=begin,
+                end=end,
+            )
+            self.logger.info(f"因子评估结果已保存至 {evaluation}")
 
 
 def main():
     parser = argparse.ArgumentParser(description="自动生成因子定义代码")
-    parser.add_argument("doc_path", type=str, help="因子定义的 Markdown 文件路径")
+    parser.add_argument("doc", type=str, help="因子定义的 Markdown 文件路径")
     parser.add_argument(
-        "output_path", type=str, default=None, help="输出因子的 Python 文件路径"
+        "--factorpy", type=str, default=None, help="输出因子的 Python 文件路径"
     )
     parser.add_argument(
-        "-d",
-        "--db_path",
+        "--database",
         type=str,
         default=None,
         help="存储对话的路径，默认采用内存存储，程序运行后自动删除。",
     )
     parser.add_argument(
-        "-s", "--save_path", type=str, default=None, help="输出因子数据的路径"
+        "--begin", type=str, default="2025-01-01", help="因子数据的开始时间"
+    )
+    parser.add_argument("--end", type=str, default="now", help="因子数据的结束时间")
+    parser.add_argument(
+        "--save",
+        action="store_true",
+        help="是否进行因子数据的计算与保存",
+    )
+    parser.add_argument(
+        "--evaluation",
+        action="store_true",
+        help="是否进行因子评估",
     )
     args = parser.parse_args()
 
-    doc_path = args.doc_path
-    db_path = args.db_path or os.getenv("DB_PATH")
-    output_path = args.output_path or os.getenv("FACTORPY_PATH")
-    save_path = args.save_path or os.getenv("FACTORLAB_PATH")
+    doc = args.doc
+    factorpy = args.factorpy or os.getenv("FACTORPY_PATH")
+    database = args.database or os.getenv("DB_PATH")
+    begin = args.begin or "2015-01-01"
+    end = args.end or "now"
+    save = args.save
+    evaluation = args.evaluation
 
     asyncio.run(
         FactorAgent(
             tools=[FactorAgent.get_all_dataset, FactorAgent.get_duckparquet_schema],
             instructions=Path("docs/CODEGEN_AGENT.md").read_text(encoding="utf-8"),
-        ).run(doc_path, output_path, db_path)
+        ).run(doc, factorpy, database, begin, end, save, evaluation)
     )
 
 
 if __name__ == "__main__":
+    import dotenv
+
+    dotenv.load_dotenv()
     main()
