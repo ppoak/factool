@@ -18,11 +18,11 @@ def calc_factorname(time: Union[str, pd.Timestamp]) -> Union[pd.Series, pd.DataF
 ```
 
 - 不要输出markdown格式，只输出纯代码（不要```python标记，也不要文字说明）。
-- 只生成一个calc_因子名函数，不论输入是多少个因子，都只生成一个函数；如果输入是多个因子，。
+- 只生成一个calc_因子名函数，不论输入是多少个因子，都只生成一个函数。
 
 ## Reference
 
-- 参考代码如下，改代码为对应给定log_market_size、nonlinear_market_size两个因子和定义后生成的示范回答。
+- 参考代码如下，该代码为对应给定log_market_size、nonlinear_market_size两个因子和定义后生成的示范回答。
 
 ```python
 import os
@@ -54,7 +54,7 @@ def calc_market_size(time: Union[str, pd.Timestamp]) -> pd.DataFrame:
 
 - factool模块：
     - factool模块是专门为该项目编写的，以DuckParquet为数据底座的因子分析库。
-    - factool包含source模块、operators模块、evaluator模块。source模块存放DuckParquetSource数据源借口，operators存放各种因子计算操作符，evaluator模块存放因子计算结果的评估类Evaluator。他们都可以直接从factool工具库中直接import
+    - factool包含source模块、operators模块、evaluator模块。source模块存放DuckParquetSource数据源接口，operators存放各种因子计算操作符，evaluator模块存放因子计算结果的评估类Evaluator。他们都可以直接从factool工具库中直接import
     - 
 
 - 数据读取最佳实践：
