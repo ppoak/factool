@@ -29,10 +29,8 @@ dependencies = [
     "parquool>=0.0.1",
     "matplotlib>=3.9",
     "openpyxl>=3.0",
+    "streamlit>=1.50.0",
 ]
-
-[project.scripts]
-factool = "factool.agent:main"
 
 [[tool.uv.index]]
 url = "https://pypi.tuna.tsinghua.edu.cn/simple"
