@@ -10,44 +10,6 @@ from factool import DuckParquetSource
 from openai.types.responses import ResponseTextDeltaEvent
 
 
-def web():
-    import streamlit as st
-
-    async def stream(prompt):
-        async for event in factool_agent.stream(prompt):
-            # We'll print streaming delta if available
-            if event.type == "raw_response_event" and isinstance(
-                event.data, ResponseTextDeltaEvent
-            ):
-                yield event.data.delta
-            elif event.type == "run_item_stream_event":
-                if event.item.type == "tool_call_item":
-                    yield f"{event.item.raw_item.name} - {event.item.raw_item.arguments}\n\n"
-                elif event.item.type == "tool_call_output_item":
-                    yield event.item.output
-                else:
-                    pass
-
-    name = "Factool Agent"
-    st.title(name)
-
-    if "messages" not in st.session_state:
-        st.session_state.messages = []
-
-    for message in st.session_state.messages:
-        with st.chat_message(message["role"]):
-            st.markdown(message["content"])
-
-    if prompt := st.chat_input("What is up?"):
-        st.session_state.messages.append({"role": "user", "content": prompt})
-        with st.chat_message("user"):
-            st.markdown(prompt)
-
-        with st.chat_message("assistant"):
-            response = st.write_stream(stream(prompt))
-        st.session_state.messages.append({"role": "assistant", "content": response})
-
-
 class FactorAgent(parquool.Agent):
 
     @staticmethod
@@ -155,6 +117,3 @@ factool_agent = FactorAgent(
     instructions=Path("docs/CODEGEN_AGENT.md").read_text(encoding="utf-8"),
 )
 
-
-if __name__ == "__main__":
-    web()
