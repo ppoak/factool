@@ -3,22 +3,58 @@ import argparse
 import asyncio
 from pathlib import Path
 
+import parquool
 from calc import calc
 from evaluate import evaluate
-from agents import function_tool
 from factool import DuckParquetSource
-from parquool import BaseAgent
+from openai.types.responses import ResponseTextDeltaEvent
 
 
-class FactorAgent(BaseAgent):
+def web():
+    import streamlit as st
 
-    @function_tool
+    async def stream(prompt):
+        async for event in factool_agent.stream(prompt):
+            # We'll print streaming delta if available
+            if event.type == "raw_response_event" and isinstance(
+                event.data, ResponseTextDeltaEvent
+            ):
+                yield event.data.delta
+            elif event.type == "run_item_stream_event":
+                if event.item.type == "tool_call_item":
+                    yield f"{event.item.raw_item.name} - {event.item.raw_item.arguments}\n\n"
+                elif event.item.type == "tool_call_output_item":
+                    yield event.item.output
+                else:
+                    pass
+
+    name = "Factool Agent"
+    st.title(name)
+
+    if "messages" not in st.session_state:
+        st.session_state.messages = []
+
+    for message in st.session_state.messages:
+        with st.chat_message(message["role"]):
+            st.markdown(message["content"])
+
+    if prompt := st.chat_input("What is up?"):
+        st.session_state.messages.append({"role": "user", "content": prompt})
+        with st.chat_message("user"):
+            st.markdown(prompt)
+
+        with st.chat_message("assistant"):
+            response = st.write_stream(stream(prompt))
+        st.session_state.messages.append({"role": "assistant", "content": response})
+
+
+class FactorAgent(parquool.Agent):
+
     @staticmethod
     def get_all_dataset() -> str:
         """获取数据库中所有可用的数据表"""
         return ", ".join([p.stem for p in Path(os.getenv("DATASET_PATH")).iterdir()])
 
-    @function_tool
     @staticmethod
     def get_duckparquet_schema(dp_path: str) -> str:
         """获取dp_path对应的数据表中可用的因子/数据列信息"""
@@ -30,7 +66,7 @@ class FactorAgent(BaseAgent):
         duckparquet = DuckParquetSource(dp_path)
         return duckparquet.get_all_factors().to_markdown()
 
-    async def run(
+    def __call__(
         self,
         doc: str,
         factorpy: str,
@@ -44,7 +80,7 @@ class FactorAgent(BaseAgent):
         prompt = f"现在，请你根据如下因子定义，按照指示开始编写名为{doc.stem}的因子定义函数\n\n" + doc.read_text(
             encoding="utf-8"
         )
-        result = await super().run_streamed(prompt, db_path=database)
+        result = super().run_streamed_sync(prompt, db_path=database)
         output_dir = Path(factorpy)
         output_dir.mkdir(parents=True, exist_ok=True)
         output_path = output_dir / f"{doc.stem}.py"
@@ -110,12 +146,15 @@ def main():
         FactorAgent(
             tools=[FactorAgent.get_all_dataset, FactorAgent.get_duckparquet_schema],
             instructions=Path("docs/CODEGEN_AGENT.md").read_text(encoding="utf-8"),
-        ).run(doc, factorpy, database, begin, end, save, evaluation)
+        )(doc, factorpy, database, begin, end, save, evaluation)
     )
 
 
-if __name__ == "__main__":
-    import dotenv
+factool_agent = FactorAgent(
+    tools=[FactorAgent.get_all_dataset, FactorAgent.get_duckparquet_schema],
+    instructions=Path("docs/CODEGEN_AGENT.md").read_text(encoding="utf-8"),
+)
 
-    dotenv.load_dotenv()
-    main()
+
+if __name__ == "__main__":
+    web()
