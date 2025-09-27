@@ -1,52 +1,60 @@
 import os
 import argparse
-import asyncio
 from pathlib import Path
 
 import parquool
 from calc import calc
 from evaluate import evaluate
 from factool import DuckParquetSource
-from openai.types.responses import ResponseTextDeltaEvent
 
 
 class FactorAgent(parquool.Agent):
 
     @staticmethod
-    def get_all_dataset() -> str:
-        """获取数据库中所有可用的数据表"""
+    def get_all_tables() -> str:
+        """Get all availabel duck parquet table on your environment variable `DATASET_PATH`"""
         return ", ".join([p.stem for p in Path(os.getenv("DATASET_PATH")).iterdir()])
 
     @staticmethod
-    def get_duckparquet_schema(dp_path: str) -> str:
-        """获取dp_path对应的数据表中可用的因子/数据列信息"""
-        dp_path = Path(os.getenv("DATASET_PATH")) / dp_path
-        if not dp_path.exists():
+    def get_duckparquet_schema(table_name: str) -> str:
+        """Get table schema that named `table_name`, this table should exist.
+        You can get all the available table by using `get_all_tables`
+
+        Args:
+            table_name (str): table name.
+
+        Return:
+            (str) the table schema in markdown table format
+        """
+        table_name = Path(os.getenv("DATASET_PATH")) / table_name
+        if not table_name.exists():
             raise ValueError(
-                f"The target path: {dp_path} does not exist, please try something valid in the result of `get_all_dataset`"
+                f"The target table: {table_name} does not exist, "
+                "please try something valid in the result of `get_all_dataset`"
             )
-        duckparquet = DuckParquetSource(dp_path)
+        duckparquet = DuckParquetSource(table_name)
         return duckparquet.get_all_factors().to_markdown()
 
-    def __call__(
+    def generate(
         self,
         doc: str,
-        factorpy: str,
-        database: str,
-        begin: str,
-        end: str,
-        save: str,
-        evaluation: str,
+        factorpy: str = None,
+        begin: str = "2015-01-01",
+        end: str = "now",
+        save: str = True,
+        evaluation: str = True,
     ):
         doc = Path(doc)
         prompt = f"现在，请你根据如下因子定义，按照指示开始编写名为{doc.stem}的因子定义函数\n\n" + doc.read_text(
             encoding="utf-8"
         )
-        result = super().run_streamed_sync(prompt, db_path=database)
-        output_dir = Path(factorpy)
+        self.run_streamed_sync(prompt)
+        output_dir = Path(factorpy or "out")
         output_dir.mkdir(parents=True, exist_ok=True)
         output_path = output_dir / f"{doc.stem}.py"
-        Path(output_path).write_text(result.final_output, encoding="utf-8")
+        Path(output_path).write_text(
+            self.get_conversation()[-1]["content"][-1]["text"], encoding="utf-8"
+        )
         self.logger.info(f"因子代码已保存至 {output_path}")
         if save:
             calc(
@@ -104,16 +112,13 @@ def main():
     save = args.save
     evaluation = args.evaluation
 
-    asyncio.run(
-        FactorAgent(
-            tools=[FactorAgent.get_all_dataset, FactorAgent.get_duckparquet_schema],
-            instructions=Path("docs/CODEGEN_AGENT.md").read_text(encoding="utf-8"),
-        )(doc, factorpy, database, begin, end, save, evaluation)
-    )
+    FactorAgent(
+        tools=[FactorAgent.get_all_tables, FactorAgent.get_duckparquet_schema],
+        instructions=Path("docs/CODEGEN_AGENT.md").read_text(encoding="utf-8"),
+    ).generate(doc, factorpy, database, begin, end, save, evaluation)
 
 
 factool_agent = FactorAgent(
-    tools=[FactorAgent.get_all_dataset, FactorAgent.get_duckparquet_schema],
+    tools=[FactorAgent.get_all_tables, FactorAgent.get_duckparquet_schema],
     instructions=Path("docs/CODEGEN_AGENT.md").read_text(encoding="utf-8"),
 )
-
