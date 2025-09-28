@@ -45,6 +45,6 @@ if __name__ == "__main__":
             "2025-07-01",
             "now",
             n_jobs=14,
-            save_path=os.getenv("FACTORLAB_PATH"),
+            save_path=os.getenv("FACTOR_DATA_PATH"),
         )
     )

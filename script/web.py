@@ -149,8 +149,6 @@ if st.session_state.get("selected_doc_path"):
             height=500,
         )
     else:
-        # Preview mode: render markdown
-        st.subheader("预览 (渲染后的 Markdown)")
         try:
             st.markdown(st.session_state.get("md_editor", ""))
         except Exception:

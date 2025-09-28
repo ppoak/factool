@@ -61,12 +61,12 @@ class FactorAgent(parquool.Agent):
                 output_path,
                 begin,
                 end,
-                save_path=Path(os.getenv("FACTORLAB_PATH")) / doc.stem,
+                save_path=Path(os.getenv("FACTOR_DATA_PATH")) / doc.stem,
             )
             self.logger.info(f"因子数据已保存至 {save}")
         if evaluation:
             evaluators = evaluate(
-                factor_path=Path(os.getenv("FACTORLAB_PATH")) / doc.stem,
+                factor_path=Path(os.getenv("FACTOR_DATA_PATH")) / doc.stem,
                 price_path=os.getenv("QUOTESDAY_PATH"),
                 benchmark_path=os.getenv("INDEXQUOTESDAY_PATH"),
                 output_path=Path(os.getenv("EVAL_PATH")) / doc.stem,

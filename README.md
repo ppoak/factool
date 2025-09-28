@@ -1,50 +1,31 @@
 # Factor
 
-This is a framework for factor mining and backtesting. The data supply is from anthor quantative tool repository named `quool`, see [quool](https://github.com/ppoak/quool) for more information.
+This is a framework for factor mining and evaluating. The data backend is from anthor quantative tool repository named `parquool`, see [parquool](https://github.com/ppoak/parquool) for more information.
 
-## Usage
+## Installation
 
 You can simple click download file in zip format on github, or you can use git command line if you want:
 
 ```
-git clone git@github.com:ppoak/factor
+git clone git@github.com:ppoak/factool
 ```
 
-## Factors
+## Quick Start
 
-### Barra
+### Factor Source
 
-all barra factors can be found in `contrib/barra.py`
+Factor source is managed by `parquool.DuckParquet`, which provides a easy and simple way to manage factor data completely offline by your own computer. DuckParquet provides a series of sql-like interfaces, you can simple create a DuckParquet directory by using `DuckParquet(path).upsert_from_df(df)`. And you can also select with `where` clause, `order by` clause, etc.
 
-1. `size`: the circulation value of the factor.
+### Factor Computing
 
-   $$
-   size = \text{log}(price \times circulation)
-   $$
-2. `momentum`: the historical return on a stock in the past n days.
+You can simply create a function starts with `calc_` and add the real factor script name to it in a python file. For example, if you want to create a `market_size` function, which calculate the `log market size` factor and `non-linear market size` factor. You can just create one script named `market_size.py` with one function called `calc_market_size`. Then by running `calc` function in `calc.py`, pass the path to the `market_size.py` to it, it will compute and save the result to the directory where your environment variable `FACTOR_DATA_PATH` points to.
 
-   $$
-   momentum = \frac{price_{t} - price_{t-n}}{{price}_{t-n}}
-   $$
-3. `volatility`: the standard deviation of the daily returns of a stock over the past n days.
+### Factor Evaluating
 
-   $$
-   volatility = \sqrt{\frac{1}{n} \sum_{i=1}^{n} return_{t-i}^2}
-   $$
-4. `ep`: the ratio of net profit to the total circulation value
+To evaluate a factor, you need to tell the `evaluate` funciton where your factor `DuckParquet` path is and your k-line data for computing returns of the market. Moreover, if you want to see the performance of the benchmark, you can also assign the benchmark code to the function. If the parameters above are not set, the funciont will automatically find them in environment variable: `QUOTESDAY_PATH`, `INDEXQUOTESDAY_PATH`. And the result output will be `EVAL_PATH`. The result is composed with one excel file with two sheets, one for ic time series, and one for evaluation result. And the other result is ic time-series image and net value of grouping result with benchmark value if set.
 
-   $$
-   ep = \frac{net\_profit}{circulation}
-   $$
+### Automation
 
-## Change Log
+All the processes above can be set in an automatic way. The `scritp/agent.py` and `script/web.py` file provide a terminal and web interface for using AI models in calculating and evaluating factors.
 
-version 0.1.0: add `report` module can help you backtesting any factor you want. Organized some computing modules named `barra`, `financial`, `highfreq`.
-
-version 0.2.0: seperate task file out, and can perform backtest more flexible; reorganizing tools to factor core file.
-
-version 0.2.1: fix problem in not returning information from backtest function
-
-version 0.2.2: reorganize factor computing scripts to `contrib` directory. And any definitions added can be put there in form of function.
-
-version 0.3.0: (current version) reorganize factor computing scripts to root. Add some data getting interfaces.
+For the cli, you can simply input a factor definition markdown file path to the command. All the process will be run automatically. As for the web, just explore it!
