@@ -23,7 +23,7 @@ with st.sidebar:
     md_files = []
     if DEFINITIONS_DIR.exists():
         md_files = sorted(
-            [p for p in DEFINITIONS_DIR.iterdir() if p.suffix.lower() in (".md",)]
+            [p for p in DEFINITIONS_DIR.glob("**/*.md")]
         )
     md_options = []
     cwd_resolved = Path.cwd().resolve()
