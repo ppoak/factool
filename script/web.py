@@ -1,8 +1,10 @@
+import os
 import threading
 import time
 import logging
 from pathlib import Path
 import streamlit as st
+import pandas as pd
 
 from agent import factool_agent
 
@@ -20,7 +22,9 @@ with st.sidebar:
     # List available definition files
     md_files = []
     if DEFINITIONS_DIR.exists():
-        md_files = sorted([p for p in DEFINITIONS_DIR.iterdir() if p.suffix.lower() in (".md",)])
+        md_files = sorted(
+            [p for p in DEFINITIONS_DIR.iterdir() if p.suffix.lower() in (".md",)]
+        )
     md_options = []
     cwd_resolved = Path.cwd().resolve()
     for p in md_files:
@@ -34,7 +38,9 @@ with st.sidebar:
 
     selected = st.selectbox("从 docs/definitions 选择已有说明", md_options)
 
-    uploaded_file = st.file_uploader("或上传你自己的说明 Markdown 文件", type=["md", "markdown"])
+    uploaded_file = st.file_uploader(
+        "或上传你自己的说明 Markdown 文件", type=["md", "markdown"]
+    )
 
     st.markdown("---")
     st.header("运行参数")
@@ -68,7 +74,7 @@ else:
         # selected is a posix-style string (relative or absolute). Resolve safely to an absolute Path.
         sel_path = Path(selected)
         if not sel_path.is_absolute():
-            sel_path = (Path.cwd() / sel_path)
+            sel_path = Path.cwd() / sel_path
         selected_doc_path = sel_path.resolve()
         try:
             file_content = selected_doc_path.read_text(encoding="utf-8")
@@ -107,7 +113,7 @@ if st.session_state.get("selected_doc_path"):
             pass
 
     def _save_and_reload():
-        if not st.session_state.get('editing'):
+        if not st.session_state.get("editing"):
             st.session_state["md_editor"] = path.read_text(encoding="utf-8")
             return
         try:
@@ -136,7 +142,12 @@ if st.session_state.get("selected_doc_path"):
 
     if st.session_state.get("editing"):
         # Editing mode: show a single text_area for editing
-        st.text_area("编辑 Markdown", value=st.session_state.get("md_editor", ""), key="md_editor", height=500)
+        st.text_area(
+            "编辑 Markdown",
+            value=st.session_state.get("md_editor", ""),
+            key="md_editor",
+            height=500,
+        )
     else:
         # Preview mode: render markdown
         st.subheader("预览 (渲染后的 Markdown)")
@@ -153,6 +164,7 @@ else:
 run_button = st.button("运行生成")
 
 log_box = st.empty()
+
 
 class ListHandler(logging.Handler):
     def __init__(self, store):
@@ -187,6 +199,18 @@ def run_generate(doc_path, factorpy, begin, end, save, evaluation, log_store):
     finally:
         # remove handler
         root_logger.removeHandler(handler)
+
+
+if selected_doc_path is not None:
+    artifact = Path(os.getenv("EVAL_PATH")) / selected_doc_path.stem
+    if artifact.exists():
+        for atf in artifact.iterdir():
+            st.header(f"Evaluation result {atf.stem}")
+            for filename in ["ic.png", "values.png"]:
+                st.image(atf / filename)
+            df = pd.read_excel(atf / "evaluation.xlsx", sheet_name="TopK and NGroup")
+            st.dataframe(df)
+
 
 if run_button:
     if selected_doc_path is None:
@@ -223,4 +247,6 @@ if run_button:
             except Exception:
                 st.write(f"生成的脚本位于: {output_path} (无法预览文件内容)")
         else:
-            st.write("未在预期位置找到生成的脚本，可能发生错误。请查看日志以获取更多信息。")
+            st.write(
+                "未在预期位置找到生成的脚本，可能发生错误。请查看日志以获取更多信息。"
+            )

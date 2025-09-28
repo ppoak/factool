@@ -128,7 +128,7 @@ def evaluate(
             + [(benchmark / benchmark.iloc[0]).to_frame(benchmark_code)],
             axis=1,
         ).interpolate().plot(alpha=0.7, figsize=(20, 10))
-        plt.savefig(output / f"topk.png")
+        plt.savefig(output / f"values.png")
 
         evaluator.name = factor_name
         evaluators.append(evaluator)

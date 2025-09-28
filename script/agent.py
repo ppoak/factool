@@ -69,7 +69,7 @@ class FactorAgent(parquool.Agent):
                 factor_path=Path(os.getenv("FACTORLAB_PATH")) / doc.stem,
                 price_path=os.getenv("QUOTESDAY_PATH"),
                 benchmark_path=os.getenv("INDEXQUOTESDAY_PATH"),
-                output_path=Path(os.getenv("EVAL_PATH")),
+                output_path=Path(os.getenv("EVAL_PATH")) / doc.stem,
                 begin=begin,
                 end=end,
             )
