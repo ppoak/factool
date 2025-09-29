@@ -1,7 +1,8 @@
 import os
-import threading
+import dotenv
 import time
 import logging
+import threading
 from pathlib import Path
 import streamlit as st
 import pandas as pd
@@ -10,7 +11,7 @@ from agent import factool_agent
 
 # Constants
 DEFINITIONS_DIR = Path("docs/definitions")
-UPLOAD_DIR = Path("tmp_uploads")
+UPLOAD_DIR = Path("docs/definitions")
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 st.set_page_config(page_title="Factool Agent UI", layout="wide")
@@ -22,9 +23,7 @@ with st.sidebar:
     # List available definition files
     md_files = []
     if DEFINITIONS_DIR.exists():
-        md_files = sorted(
-            [p for p in DEFINITIONS_DIR.glob("**/*.md")]
-        )
+        md_files = sorted([p for p in DEFINITIONS_DIR.glob("**/*.md")])
     md_options = []
     cwd_resolved = Path.cwd().resolve()
     for p in md_files:
@@ -43,12 +42,40 @@ with st.sidebar:
     )
 
     st.markdown("---")
-    st.header("运行参数")
-    factorpy = st.text_input("输出因子脚本目录 (factorpy)", value="")
+    st.header("运行参数 (与 pipeline 参数名一致)")
+
+    factor_py_path = st.text_input(
+        "输出因子脚本目录 (factor_py_path)",
+        value=os.getenv("FACTORPY_PATH") or "generated",
+    )
+    factor_data_path = st.text_input(
+        "输出因子数据路径 (factor_data_path)",
+        value=os.getenv("FACTOR_DATA_PATH") or "",
+    )
+    price_path = st.text_input(
+        "价格数据路径 (price_path)", value=os.getenv("QUOTESDAY_PATH") or ""
+    )
+    benchmark_path = st.text_input(
+        "基准数据路径 (benchmark_path)", value=os.getenv("BENCHMARK_PATH") or ""
+    )
+    eval_path = st.text_input(
+        "评估结果输出路径 (eval_path)", value=os.getenv("EVAL_PATH") or ""
+    )
+
     begin = st.text_input("开始时间 (begin)", value="2015-01-01")
     end = st.text_input("结束时间 (end)", value="now")
     save = st.checkbox("是否计算并保存因子数据 (save)", value=False)
     evaluation = st.checkbox("是否进行因子评估 (evaluation)", value=False)
+
+    n_jobs = st.number_input("并行作业数 (n_jobs)", value=-1, step=1)
+    ptype = st.text_input("价格类型/填充方法 (ptype)", value="open_post")
+    benchmark_code = st.text_input("基准代码 (benchmark_code)", value="")
+
+    freq = st.number_input("因子频率 (freq)", value=5, step=1)
+    topk = st.number_input("TopK (topk)", value=100, step=1)
+    ic_method = st.selectbox("IC 计算方法 (ic_method)", ["spearman", "pearson"], index=0)
+    n_group = st.number_input("分组数量 (n_group)", value=10, step=1)
+    commission = st.number_input("交易佣金率 (commission)", value=0.0005, format="%.6f")
 
     st.markdown("---")
     st.write("注意: 运行可能需要较长时间，系统会在后台执行并显示日志。")
@@ -174,7 +201,27 @@ class ListHandler(logging.Handler):
         self.store.append(msg)
 
 
-def run_generate(doc_path, factorpy, begin, end, save, evaluation, log_store):
+def run_generate(
+    doc_path,
+    factor_py_path,
+    factor_data_path,
+    price_path,
+    benchmark_path,
+    eval_path,
+    begin,
+    end,
+    save,
+    evaluation,
+    n_jobs,
+    ptype,
+    benchmark_code,
+    freq,
+    topk,
+    ic_method,
+    n_group,
+    commission,
+    log_store,
+):
     # Attach handler to root logger to capture logs
     handler = ListHandler(log_store)
     handler.setFormatter(logging.Formatter("%(asctime)s - %(levelname)s - %(message)s"))
@@ -182,13 +229,25 @@ def run_generate(doc_path, factorpy, begin, end, save, evaluation, log_store):
     root_logger.addHandler(handler)
 
     try:
-        factool_agent.generate(
-            str(doc_path),
-            factorpy or None,
-            begin,
-            end,
-            save,
-            evaluation,
+        factool_agent.pipeline(
+            doc=str(doc_path),
+            factor_py_path=factor_py_path or None,
+            factor_data_path=factor_data_path or None,
+            price_path=price_path or None,
+            benchmark_path=benchmark_path or None,
+            eval_path=eval_path or None,
+            save=save,
+            begin=begin,
+            end=end,
+            n_jobs=int(n_jobs),
+            evaluation=evaluation,
+            ptype=ptype,
+            benchmark_code=benchmark_code or None,
+            freq=int(freq),
+            topk=int(topk),
+            ic_method=ic_method,
+            n_group=int(n_group),
+            commission=float(commission),
         )
         log_store.append("RUN_FINISHED: 生成任务已完成。")
     except Exception as e:
@@ -199,16 +258,25 @@ def run_generate(doc_path, factorpy, begin, end, save, evaluation, log_store):
         root_logger.removeHandler(handler)
 
 
+# Show evaluation artifacts if available (use eval_path from UI or EVAL_PATH env)
 if selected_doc_path is not None:
-    artifact = Path(os.getenv("EVAL_PATH")) / selected_doc_path.stem
-    if artifact.exists():
-        for atf in artifact.iterdir():
-            st.header(f"Evaluation result {atf.stem}")
-            for filename in ["ic.png", "values.png"]:
-                st.image(atf / filename)
-            df = pd.read_excel(atf / "evaluation.xlsx", sheet_name="TopK and NGroup")
-            st.dataframe(df)
-
+    base_eval = eval_path or os.getenv("EVAL_PATH")
+    if base_eval:
+        artifact = Path(base_eval) / selected_doc_path.stem
+        if artifact.exists():
+            for atf in artifact.iterdir():
+                st.header(f"Evaluation result {atf.stem}")
+                for filename in ["ic.png", "values.png"]:
+                    imgp = atf / filename
+                    if imgp.exists():
+                        st.image(imgp)
+                xlsx = atf / "evaluation.xlsx"
+                if xlsx.exists():
+                    try:
+                        df = pd.read_excel(xlsx, sheet_name="TopK and NGroup")
+                        st.dataframe(df)
+                    except Exception:
+                        st.write("无法读取 evaluation.xlsx")
 
 if run_button:
     if selected_doc_path is None:
@@ -218,7 +286,27 @@ if run_button:
         log_store = []
         thread = threading.Thread(
             target=run_generate,
-            args=(selected_doc_path, factorpy, begin, end, save, evaluation, log_store),
+            args=(
+                selected_doc_path,
+                factor_py_path,
+                factor_data_path,
+                price_path,
+                benchmark_path,
+                eval_path,
+                begin,
+                end,
+                save,
+                evaluation,
+                n_jobs,
+                ptype,
+                benchmark_code,
+                freq,
+                topk,
+                ic_method,
+                n_group,
+                commission,
+                log_store,
+            ),
             daemon=True,
         )
         thread.start()
@@ -235,7 +323,7 @@ if run_button:
 
         # Offer to show generated file if exists
         doc_stem = Path(selected_doc_path).stem
-        output_dir = Path(factorpy or "out")
+        output_dir = Path(factor_py_path or "generated")
         output_path = output_dir / f"{doc_stem}.py"
         if output_path.exists():
             st.subheader("生成的因子脚本")

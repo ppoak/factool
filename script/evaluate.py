@@ -9,9 +9,9 @@ from parquool import DuckParquet, setup_logger
 def evaluate(
     factor_path: str,
     price_path: str,
-    benchmark_path: str,
     output_path: str,
     benchmark_code: str = "000985.CSI",
+    benchmark_path: str = None,
     begin: str = "2025-01-01",
     end: str = "now",
     ptype: str = "open_post",
@@ -55,7 +55,7 @@ def evaluate(
     logger.info("开始读取基准数据")
     if benchmark_code is not None:
         benchmark = (
-            DuckParquet(benchmark_path)
+            DuckParquet(benchmark_path or os.getenv("INDEXQUOTESDAY_PATH"))
             .select(
                 columns=[time_col, "close"],
                 where=f"{code_col} = ? AND {time_col} >= ? AND {time_col} <= ?",
@@ -147,6 +147,6 @@ if __name__ == "__main__":
         price_path=os.getenv("QUOTESDAY_PATH"),
         benchmark_path=os.getenv("INDEXQUOTESDAY_PATH"),
         output_path=os.getenv("EVAL_PATH"),
-        begin="2025-01-01",
+        begin="2015-01-01",
         end="now",
     )
