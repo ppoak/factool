@@ -86,7 +86,8 @@ class FactorAgent(parquool.Agent):
             factor_data_path = Path(factor_data_path or os.getenv("FACTOR_DATA_PATH"))
             price_path = Path(price_path or os.getenv("QUOTESDAY_PATH"))
             benchmark_path = Path(benchmark_path or os.getenv("INDEXQUOTESDAY_PATH"))
-            eval_path = Path(eval_path or os.getenv("EVAL_PATH"))
+            eval_path = Path(eval_path or os.getenv("EVAL_PATH")) / doc.stem
+            eval_path.mkdir(exist_ok=True, parents=True)
             evaluators = evaluate(
                 factor_path=Path(os.getenv("FACTOR_DATA_PATH")) / doc.stem,
                 price_path=price_path,

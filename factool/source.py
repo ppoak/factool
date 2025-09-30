@@ -60,8 +60,8 @@ class DuckParquetSource(FactorSource):
 
     def get_time(self, time: str, n: int):
         if n > 0:
-            return self.get_times(None, time)[-n:]
-        return self.get_times(time, None)[:-n]
+            return self.get_times(None, time)[-n - 1]
+        return self.get_times(time, None)[-n]
 
     def get_all_factors(self) -> pd.DataFrame:
         schema = self.dp.get_schema()
@@ -129,9 +129,9 @@ class DuckParquetSource(FactorSource):
         self.dp.upsert_from_df(
             factor, keys=[self.time_col, self.code_col], partition_by=["date"]
         )
-    
+
     def __str__(self):
         return super().__str__() + f"(\n{self.get_all_factors()}\n)"
-    
+
     def __repr__(self):
         return super().__repr__()

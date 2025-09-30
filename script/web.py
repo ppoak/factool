@@ -1,5 +1,4 @@
 import os
-import dotenv
 import time
 import logging
 import threading
@@ -56,7 +55,7 @@ with st.sidebar:
         "价格数据路径 (price_path)", value=os.getenv("QUOTESDAY_PATH") or ""
     )
     benchmark_path = st.text_input(
-        "基准数据路径 (benchmark_path)", value=os.getenv("BENCHMARK_PATH") or ""
+        "基准数据路径 (benchmark_path)", value=os.getenv("INDEXQUOTESDAY_PATH") or ""
     )
     eval_path = st.text_input(
         "评估结果输出路径 (eval_path)", value=os.getenv("EVAL_PATH") or ""
@@ -73,7 +72,9 @@ with st.sidebar:
 
     freq = st.number_input("因子频率 (freq)", value=5, step=1)
     topk = st.number_input("TopK (topk)", value=100, step=1)
-    ic_method = st.selectbox("IC 计算方法 (ic_method)", ["spearman", "pearson"], index=0)
+    ic_method = st.selectbox(
+        "IC 计算方法 (ic_method)", ["spearman", "pearson"], index=0
+    )
     n_group = st.number_input("分组数量 (n_group)", value=10, step=1)
     commission = st.number_input("交易佣金率 (commission)", value=0.0005, format="%.6f")
 

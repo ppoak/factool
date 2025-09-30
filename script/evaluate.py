@@ -125,14 +125,18 @@ def evaluate(
                 res["values"].to_frame(f"Group{i}")
                 for i, res in enumerate(evaluator.ngroup_result, start=1)
             ]
-            + [(benchmark / benchmark.iloc[0]).to_frame(benchmark_code)],
+            + (
+                [(benchmark / benchmark.iloc[0]).to_frame(benchmark_code)]
+                if benchmark is not None
+                else []
+            ),
             axis=1,
         ).interpolate().plot(alpha=0.7, figsize=(20, 10))
         plt.savefig(output / f"values.png")
 
         evaluator.name = factor_name
         evaluators.append(evaluator)
-    
+
     return evaluators
 
 
