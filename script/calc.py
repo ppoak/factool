@@ -28,7 +28,7 @@ def calc(
         factor_data = pd.concat(result, axis=0, keys=times).sort_index()
 
     if save_path:
-        factool.DuckParquetSource(Path(save_path) / factor_func.__name__[5:]).save(
+        factool.DuckParquetSource(Path(save_path)).save(
             factor_data
         )
 

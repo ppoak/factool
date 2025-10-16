@@ -6,7 +6,7 @@ from pathlib import Path
 import streamlit as st
 import pandas as pd
 
-from agent import factool_agent
+from agent import create
 
 # Constants
 DEFINITIONS_DIR = Path("docs/definitions")
@@ -228,7 +228,7 @@ def run_generate(
     handler.setFormatter(logging.Formatter("%(asctime)s - %(levelname)s - %(message)s"))
     root_logger = logging.getLogger()
     root_logger.addHandler(handler)
-
+    factool_agent = create(session_db=doc_path.stem)
     try:
         factool_agent.pipeline(
             doc=str(doc_path),
@@ -288,7 +288,7 @@ if run_button:
         thread = threading.Thread(
             target=run_generate,
             args=(
-                selected_doc_path,
+                Path(selected_doc_path),
                 factor_py_path,
                 factor_data_path,
                 price_path,
