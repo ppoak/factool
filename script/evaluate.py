@@ -147,7 +147,7 @@ if __name__ == "__main__":
 
     dotenv.load_dotenv()
     evaluate(
-        factor_path=Path(os.getenv("FACTOR_DATA_PATH")) / "market_size",
+        factor_path=Path(os.getenv("FACTOR_DATA_PATH")) / "capital_gain_overhang",
         price_path=os.getenv("QUOTESDAY_PATH"),
         benchmark_path=os.getenv("INDEXQUOTESDAY_PATH"),
         output_path=os.getenv("EVAL_PATH"),

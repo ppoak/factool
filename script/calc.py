@@ -28,7 +28,7 @@ def calc(
         factor_data = pd.concat(result, axis=0, keys=times).sort_index()
 
     if save_path:
-        factool.DuckParquetSource(Path(save_path)).save(
+        factool.DuckParquetSource(Path(save_path) / factor_name).save(
             factor_data
         )
 
@@ -37,14 +37,16 @@ def calc(
 
 if __name__ == "__main__":
     load_dotenv()
-    factor_file_path = "contrib/market_size.py"
+    from parquool import notify_task
+    factor_file_path = "generated/capital_gain_overhang.py"
+    notifier = notify_task()
 
     print(
-        calc(
+        notifier(calc)(
             factor_file_path,
-            "2025-07-01",
+            "2015-01-01",
             "now",
-            n_jobs=14,
+            n_jobs=26,
             save_path=os.getenv("FACTOR_DATA_PATH"),
         )
     )

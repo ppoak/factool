@@ -60,8 +60,8 @@ class DuckParquetSource(FactorSource):
 
     def get_time(self, time: str, n: int):
         if n > 0:
-            return self.get_times(None, time)[-n - 1]
-        return self.get_times(time, None)[-n]
+            return self.get_times(None, time).iloc[-n - 1]
+        return self.get_times(time, None).iloc[-n]
 
     def get_all_factors(self) -> pd.DataFrame:
         schema = self.dp.get_schema()
