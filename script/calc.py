@@ -29,7 +29,7 @@ def calc(
 
     if save_path:
         factool.DuckParquetSource(Path(save_path) / factor_name).save(
-            factor_data
+            factor_data, name=factor_name
         )
 
     return factor_data
