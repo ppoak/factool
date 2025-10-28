@@ -1632,7 +1632,7 @@ class Evaluator:
         for i in range(N):
             y = R[:, i]
             beta, _, _, _, _ = self._ols_fit(
-                X=F, y=y, add_intercept=True, cov_type="none"
+                X=F, y=y, add_intercept=add_intercept, cov_type="none"
             )
             alphas.append(beta[0])
             resid = y - (self._add_intercept(F) @ beta)
