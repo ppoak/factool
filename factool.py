@@ -1,6 +1,5 @@
 import math
 from functools import partial
-from abc import ABC, abstractmethod
 from typing import Dict, List, Literal, Optional, Tuple, Union
 
 import numpy as np
@@ -11,37 +10,12 @@ from logging import Logger
 from parquool import DuckParquet, setup_logger
 
 
-class FactorSource(ABC):
-
-    @abstractmethod
-    def get_times(self, begin: str, end: str):
-        raise NotImplementedError
-
-    @abstractmethod
-    def get_time(self, time: str, n: int):
-        raise NotImplementedError
-
-    @abstractmethod
-    def get_factor(self, name: str, begin: str, end: str):
-        raise NotImplementedError
-
-    @abstractmethod
-    def save(self, name: str, df: pd.DataFrame):
-        raise NotImplementedError
-
-    def __str__(self):
-        return f"{self.__class__.__name__}"
-
-    def __repr__(self):
-        return self.__str__()
-
-
-class DuckParquetSource(FactorSource):
+class DuckParquetSource:
 
     def __init__(
         self,
         dataset_path: str,
-        time_col: str = "time",
+        time_col: str = "date",
         code_col: str = "code",
         name: str = None,
         db_path: str = None,
@@ -51,7 +25,7 @@ class DuckParquetSource(FactorSource):
         self.time_col = time_col
         self.code_col = code_col
 
-    def get_times(self, begin: str = None, end: str = None, time_col: str = "time"):
+    def get_times(self, begin: str = None, end: str = None, time_col: str = "date"):
         times = self.dp.select(
             columns=f"{time_col} AS time",
             where="time >= ? AND time <= ?",
