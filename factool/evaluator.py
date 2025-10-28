@@ -1388,3 +1388,209 @@ class Evaluator:
         except Exception as e:
             self._logger.error(f"White test failed: {e}")
             return np.nan, np.nan
+
+    def attribute_portfolio(
+        self,
+        weights: pd.DataFrame,
+        horizon: int = 1,
+        feasible: Optional[pd.DataFrame] = None,
+        other_factors: Optional[Dict[str, pd.DataFrame]] = None,
+        factor_returns: Optional[pd.DataFrame] = None,
+        standardize_exposures: bool = False,
+        normalize_weights: bool = True,
+        normalize_mode: Literal["sum", "abs"] = "sum",
+        build_factor_returns: bool = True,
+        group_n: int = 10,
+        group_mode: Literal["conditional", "independent"] = "conditional",
+        group_cell_weight: Literal["equal", "count"] = "equal",
+        hl_mode: Literal["first_last", "extreme"] = "first_last",
+    ) -> "Evaluator":
+        """Attribute a portfolio's returns to factor exposures and factor returns.
+
+        This method performs characteristics-based attribution:
+        - Portfolio factor exposure at time t: E_{p,k,t} = sum_i w_{t,i} * X_{k,t,i}
+            where X_{k,t,i} is the cross-sectional exposure of asset i to factor k at time t.
+        - Factor return contribution: C_{k,t} = E_{p,k,t} * F_{k,t}, where F_{k,t} is the factor return at t.
+        - Residual (idiosyncratic): R_{p,t} - sum_k C_{k,t}.
+
+        Factor returns:
+        - If factor_returns is provided, it should be a DataFrame (dates x K) and columns should match:
+            'factor' for the primary factor and the keys in other_factors (if provided).
+        - If factor_returns is None and build_factor_returns=True:
+            - The HL factor for the primary factor is built via grouped portfolios (using group_n, group_mode, hl_mode).
+            - For each other factor (if provided), a temporary Evaluator is created to build its own HL using the same price
+                and the same grouping params (single-factor HL per control factor).
+        - If factor_returns is None and build_factor_returns=False: contributions will not be computed (NaN).
+
+        Weights and alignment:
+        - weights is a wide DataFrame (dates x assets). We assume weights at t are applied to returns from t to t+horizon.
+        - If normalize_weights=True, weights are normalized per date:
+            - normalize_mode='sum': divide by sum of weights (can be negative for long/short).
+            - normalize_mode='abs': divide by sum of absolute weights (keeps total gross at 1).
+        - Weights are zeroed where assets are infeasible or have NaN returns.
+
+        Args:
+            weights: Portfolio weights (dates x assets).
+            horizon: Return horizon (in periods) for realized portfolio returns and factor contributions.
+            feasible: Optional eligibility mask (dates x assets). Infeasible assets receive zero weight.
+            other_factors: Optional dict of name -> exposure DataFrame for multi-factor exposure attribution.
+                        Exposures must be aligned by dates/assets to the primary factor and price universe.
+            factor_returns: Optional DataFrame (dates x K) of factor returns. Columns should be:
+                            'factor' for the primary factor, and keys matching other_factors.
+            standardize_exposures: Cross-sectionally standardize each factor's exposures per date (z-score).
+            normalize_weights: Normalize weights per date (after masking infeasible/NaN returns).
+            normalize_mode: 'sum' for sum-to-1; 'abs' for gross = 1 using sum of absolute weights.
+            build_factor_returns: If True and factor_returns is None, build HL returns for the primary and other factors.
+            group_n: n-quantiles used if building HL factor returns.
+            group_mode: 'conditional' or 'independent' sorting mode used when building HL.
+            group_cell_weight: Aggregation across buckets when reporting group_returns for HL building.
+            hl_mode: 'first_last' or 'extreme' for HL construction when building HL.
+
+        Returns:
+            Evaluator: self with attribute `portfolio_attribution` containing:
+                - 'portfolio_return': Series of realized portfolio returns.
+                - 'factor_exposure': DataFrame (dates x K) of portfolio factor exposures.
+                - 'factor_returns': DataFrame (dates x K) of factor returns used.
+                - 'factor_contribution': DataFrame (dates x K) of factor contributions.
+                - 'total_factor_contribution': Series sum across factors of contributions.
+                - 'residual': Series of idiosyncratic residual = portfolio_return - total_factor_contribution.
+
+        Notes:
+            - Exposures use a characteristics model (weighted average of cross-sectional exposures).
+            - Contributions multiply exposures at t by factor returns over t to t+horizon, aligned by index.
+            - If factor returns are not supplied and cannot be built, contributions will be NaN.
+        """
+        # 1) Prepare returns and align
+        future = self._future_return(horizon)  # asset returns from t to t+h
+        # Align weights to price/returns universe
+        weights = weights.reindex(index=future.index, columns=future.columns).fillna(
+            0.0
+        )
+        # Mask out assets with NaN returns on the date
+        weights = weights.where(future.notna(), 0.0)
+
+        # Apply feasibility mask if provided
+        if feasible is not None:
+            feasible = feasible.reindex_like(future).fillna(False)
+            weights = weights.where(feasible.astype(bool), 0.0)
+
+        # Normalize weights per date if requested
+        if normalize_weights:
+            if normalize_mode == "abs":
+                denom = weights.abs().sum(axis=1).replace(0.0, np.nan)
+            else:
+                denom = weights.sum(axis=1).replace(0.0, np.nan)
+            weights = weights.div(denom, axis=0).fillna(0.0)
+
+        # 2) Realized portfolio return from t to t+h
+        port_ret = (weights * future).sum(axis=1)
+
+        # 3) Build factor exposure matrices
+        factor_expo_dict: Dict[str, pd.DataFrame] = {
+            "factor": self._factor.reindex_like(future)
+        }
+        if other_factors is not None:
+            for name, df in other_factors.items():
+                factor_expo_dict[name] = df.reindex_like(future)
+
+        # Optionally standardize exposures per date (z-score)
+        if standardize_exposures:
+            for name, X in factor_expo_dict.items():
+                mu = X.mean(axis=1)
+                sd = X.std(axis=1, ddof=1).replace(0.0, np.nan)
+                factor_expo_dict[name] = (X.sub(mu, axis=0)).div(sd, axis=0)
+
+        # 4) Portfolio factor exposures over time: E_{p,k,t} = sum_i w_{t,i} * X_{k,t,i}
+        expo_df = pd.DataFrame(
+            index=future.index, columns=list(factor_expo_dict.keys()), dtype="float"
+        )
+        for name, X in factor_expo_dict.items():
+            X = X.where(future.notna())  # ignore assets without returns
+            expo_df[name] = (weights * X).sum(axis=1)
+
+        # 5) Factor returns matrix (dates x K)
+        fac_ret_df: Optional[pd.DataFrame] = None
+        if factor_returns is not None:
+            # Align to working index
+            fac_ret_df = factor_returns.reindex(index=future.index)
+        elif build_factor_returns:
+            # Build HL for the primary factor using this evaluator
+            fac_cols: List[str] = []
+            fac_list: List[pd.Series] = []
+
+            # Primary factor HL
+            self.get_group_returns(
+                n=group_n,
+                horizon=horizon,
+                other_factors=None,
+                mode=group_mode,
+                feasible=feasible,
+                weight=None,
+                cell_weight=group_cell_weight,
+                hl_mode=hl_mode,
+            )
+            hl_main = self.sorted_factor_return.rename("factor")
+            fac_cols.append("factor")
+            fac_list.append(hl_main)
+
+            # Other factors HL (single-factor HL per control factor)
+            if other_factors is not None and len(other_factors) > 0:
+                for name, df in other_factors.items():
+                    try:
+                        tmp_eval = Evaluator(
+                            factor=df, price=self._price, logger=self._logger
+                        )
+                        tmp_eval.get_group_returns(
+                            n=group_n,
+                            horizon=horizon,
+                            other_factors=None,
+                            mode=group_mode,
+                            feasible=feasible,
+                            weight=None,
+                            cell_weight=group_cell_weight,
+                            hl_mode=hl_mode,
+                        )
+                        fac_cols.append(name)
+                        fac_list.append(tmp_eval.sorted_factor_return.rename(name))
+                    except Exception as e:
+                        self._logger.error(
+                            f"Failed to build HL for factor '{name}': {e}"
+                        )
+
+            if len(fac_list) > 0:
+                fac_ret_df = pd.concat(fac_list, axis=1).reindex(index=future.index)
+            else:
+                fac_ret_df = None
+
+        # 6) Factor contributions: C_{k,t} = E_{p,k,t} * F_{k,t}
+        if fac_ret_df is not None:
+            common_cols = [c for c in expo_df.columns if c in fac_ret_df.columns]
+            fac_ret_used = fac_ret_df[common_cols]
+            expo_used = expo_df[common_cols]
+            factor_contrib = expo_used.mul(fac_ret_used, axis=0)
+            total_factor_contrib = factor_contrib.sum(axis=1)
+            residual = port_ret - total_factor_contrib
+        else:
+            # Cannot compute contributions without factor returns
+            factor_contrib = pd.DataFrame(
+                index=future.index, columns=expo_df.columns, dtype="float"
+            )
+            factor_contrib[:] = np.nan
+            total_factor_contrib = pd.Series(
+                np.nan, index=future.index, name="TotalFactor"
+            )
+            residual = pd.Series(np.nan, index=future.index, name="Residual")
+            fac_ret_used = None
+
+        # 7) Store results
+        self.portfolio_attribution = {
+            "portfolio_return": port_ret.rename("PortfolioReturn"),
+            "factor_exposure": expo_df,
+            "factor_returns": fac_ret_used if fac_ret_df is not None else None,
+            "factor_contribution": factor_contrib,
+            "total_factor_contribution": total_factor_contrib.rename("TotalFactor"),
+            "residual": residual.rename("Residual"),
+            "weights_used": weights,
+        }
+        self._logger.info("Portfolio attribution completed.")
+        return self
