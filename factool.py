@@ -4,6 +4,7 @@ from typing import Dict, List, Literal, Optional, Tuple, Union
 
 import numpy as np
 import pandas as pd
+from scipy import stats
 from joblib import Parallel, delayed
 from logging import Logger
 
@@ -217,13 +218,15 @@ class DuckParquetSource:
 
         begin = pd.to_datetime(begin or "2000-01-01")
         end = pd.to_datetime(end or "now")
-        return self.dp.dpivot(
+        data = self.dp.dpivot(
             index=self.time_col,
             columns=self.code_col,
             values=name,
             where=f"{self.time_col} >= '{begin}' AND {self.time_col} <= '{end}'",
             order_by=self.time_col,
         ).set_index(self.time_col)
+        data.attrs["name"] = name
+        return data
 
     def save(
         self,
@@ -543,6 +546,7 @@ class Evaluator:
         self._logger = logger or setup_logger("FactorEvaluator", level="DEBUG")
         self._factor = factor.copy()
         self._price = price.copy()
+        self._name = self._factor.attrs.get("name")
         self._align_factor_price()
         # Shifted price to anchor "t+1" to avoid look-ahead bias when computing future returns.
         self._shifted = self._price.shift(-1)
@@ -550,24 +554,18 @@ class Evaluator:
         # Placeholders for analysis outputs
         self.group_returns: Optional[pd.DataFrame] = None
         self.sorted_factor_return: Optional[pd.Series] = None
-        self.ts_exposure_beta: Optional[pd.DataFrame] = None
-        self.ts_exposure_t: Optional[pd.DataFrame] = None
-        self.ts_exposure_alpha: Optional[pd.DataFrame] = None
+        self.factor_exposure: Optional[pd.DataFrame] = None
+        self.ts_intercept: Optional[pd.DataFrame] = None
+        self.factor_exposure_t: Optional[pd.DataFrame] = None
         self.ic: Optional[pd.Series] = None
         self.direction: Optional[float] = None
-        self.topk_result: Optional[object] = None
-        self.cs_betas: Optional[pd.DataFrame] = None
-        self.cs_tstats: Optional[pd.DataFrame] = None
-        self.cs_r2: Optional[pd.Series] = None
+        self.factor_premia: Optional[pd.DataFrame] = None
+        self.factor_premia_t: Optional[pd.DataFrame] = None
+        self.r2: Optional[pd.Series] = None
         self.fmb_premia: Optional[pd.Series] = None
         self.fmb_tstats: Optional[pd.Series] = None
-        self.ts_alpha: Optional[pd.Series] = None
-        self.ts_alpha_t: Optional[pd.Series] = None
-        self.ts_beta: Optional[pd.DataFrame] = None
-        self.ts_beta_t: Optional[pd.DataFrame] = None
         self.grs_stat: Optional[float] = None
         self.grs_pval: Optional[float] = None
-        self.alpha_test_result: Optional[pd.DataFrame] = None
         self.gmm_result: Optional[Dict[str, Union[np.ndarray, float]]] = None
 
     # ===========================
@@ -739,7 +737,7 @@ class Evaluator:
             Xw = Xw * sw[:, None]
             yw = yw * sw
 
-        n, p = Xw.shape
+        _, p = Xw.shape
         valid = np.isfinite(yw) & np.all(np.isfinite(Xw), axis=1)
         Xw = Xw[valid]
         yw = yw[valid]
@@ -788,7 +786,7 @@ class Evaluator:
         return beta, se, t, cov, r2
 
     @staticmethod
-    def _rolling_single_regression(
+    def _rolling_regression(
         y: np.ndarray,
         x: np.ndarray,
         dates: pd.Index,
@@ -796,10 +794,12 @@ class Evaluator:
         min_obs: int,
         intercept: bool,
     ) -> Tuple[pd.Series, Optional[pd.Series], pd.Series]:
-        """Run rolling OLS for a single regressor with optional intercept."""
-        betas = np.full(len(dates), np.nan, dtype="float")
+        """Run rolling OLS for regressor with optional intercept."""
+        betas = np.full((len(dates), x.shape[1]), np.nan, dtype="float")
         alphas = np.full(len(dates), np.nan, dtype="float") if intercept else None
-        tstats = np.full(len(dates), np.nan, dtype="float")
+        tstats = np.full(
+            (len(dates), x.shape[1] + (1 if intercept else 0)), np.nan, dtype="float"
+        )
 
         for j in range(len(dates)):
             start = max(0, j - window + 1)
@@ -808,21 +808,27 @@ class Evaluator:
             valid = np.isfinite(y_win) & np.isfinite(x_win)
             if valid.sum() < min_obs:
                 continue
-            X_win = x_win.reshape(-1, 1)
             beta_vec, _, t_vec, _, _ = Evaluator._ols_fit(
-                X=X_win, y=y_win, add_intercept=intercept, cov_type="none"
+                X=x_win, y=y_win, add_intercept=intercept, cov_type="none"
             )
+            beta_vec = beta_vec.astype(np.float64)
+            t_vec = t_vec.astype(np.float64)
             if intercept:
-                alphas[j] = float(beta_vec[0])
-                betas[j] = float(beta_vec[1])
-                tstats[j] = float(t_vec[1])
+                alphas[j] = beta_vec[0]
+                betas[j] = beta_vec[1:]
+                tstats[j] = t_vec
             else:
-                betas[j] = float(beta_vec[0])
-                tstats[j] = float(t_vec[0])
+                betas[j] = beta_vec
+                tstats[j] = t_vec
 
-        beta_s = pd.Series(betas, index=dates)
-        alpha_s = pd.Series(alphas, index=dates) if intercept else None
-        t_s = pd.Series(tstats, index=dates)
+        beta_s = pd.DataFrame(betas, index=dates)
+        alpha_s = (
+            pd.Series(alphas, index=dates, name="intercept") if intercept else None
+        )
+        t_s = pd.DataFrame(
+            tstats,
+            index=dates,
+        )
         return beta_s, alpha_s, t_s
 
     # ===========================
@@ -884,19 +890,23 @@ class Evaluator:
         """
         mode = str(mode).lower()
         if mode not in ("independent", "conditional"):
-            raise ValueError("mode must be 'independent' or 'conditional'")
+            self._logger.error("Mode must be 'independent' or 'conditional'")
+            return self
 
-        future = self._future_return(horizon)
+        self._logger.debug(
+            f"Apply {'future' if horizon > 0 else 'past'} {abs(horizon)} day return"
+        )
+        asset_returns = self._future_return(horizon)
 
         feasible = (
-            feasible.reindex_like(future).fillna(False)
+            feasible.reindex_like(asset_returns).fillna(False)
             if feasible is not None
-            else self._default_feasible_like(future)
+            else self._default_feasible_like(asset_returns)
         )
         weight = (
-            weight.reindex_like(future)
+            weight.reindex_like(asset_returns)
             if weight is not None
-            else self._default_weight_like(future)
+            else self._default_weight_like(asset_returns)
         )
 
         if other_factors is None:
@@ -904,9 +914,10 @@ class Evaluator:
         elif isinstance(other_factors, (list, tuple)):
             other_list = [f.reindex_like(self._factor) for f in other_factors]
         else:
-            raise TypeError("other_factors must be None, list, or tuple")
+            self._logger.error("Other_factors must be None, list, or tuple")
+            return self
 
-        dates = future.index
+        dates = asset_returns.index
         group_cols = [f"G{i}" for i in range(1, n + 1)]
         rows: List[Dict[str, float]] = []
         hl_values: List[float] = []
@@ -915,10 +926,10 @@ class Evaluator:
             try:
                 eligible = (
                     feasible.loc[dt].astype(bool)
-                    & future.loc[dt].notna()
+                    & asset_returns.loc[dt].notna()
                     & self._factor.loc[dt].notna()
                 )
-                r_t = future.loc[dt]
+                r_t = asset_returns.loc[dt]
                 w_t = weight.loc[dt]
                 f_t = self._factor.loc[dt]
 
@@ -1111,134 +1122,258 @@ class Evaluator:
                 hl_values.append(np.nan)
 
         self.group_returns = pd.DataFrame(rows, index=dates, columns=group_cols)
-        self.sorted_factor_return = pd.Series(
-            hl_values, index=dates, name=f"HL_n{n}_h{horizon}_{mode}"
-        )
+        self.sorted_factor_return = pd.Series(hl_values, index=dates, name=self._name)
         self._logger.info(
-            f"Group returns computed: n={n}, horizon={horizon}, mode={mode}"
+            f"Group returns computed: n={n}, horizon={horizon}"
+            + (f", mode={mode}" if other_factors is not None else "")
+        )
+        return self
+
+    def time_series_regression(
+        self,
+        horizon: Optional[int] = 1,
+        other_factor_returns: Optional[pd.DataFrame] = None,
+        rolling: bool = False,
+        window: int = 252,
+        min_obs: int = 60,
+        add_intercept: bool = True,
+        cov_type: Literal["none", "white", "nw"] = "nw",
+        nw_lag: int = 3,
+        hc_type: str = "HC1",
+        feasible: Optional[pd.DataFrame] = None,
+        n_jobs: int = -1,
+        standardize_factor: bool = False,
+    ) -> "Evaluator":
+        """Run time-series regressions of asset returns on factor returns.
+
+        This unified implementation supports:
+        - Full-sample OLS for multi-factor setups.
+        - Rolling OLS for single-factor setups (used by get_factor_exposure).
+
+        Args:
+            horizon: Return horizon for dependent variable when asset_returns is None.
+            other_factor_returns: Optional DataFrame of factor returns (dates x K). If None,
+                uses the constructed HL factor (sorted_factor_return) if available.
+            rolling: Whether to perform rolling regression (single factor only).
+            window: Rolling window size for time-series regression (if rolling=True).
+            min_obs: Minimum valid observations in a window to compute regression (rolling).
+            add_intercept: Whether to include an intercept (alpha) in the regression.
+            cov_type: Covariance estimator for full-sample regression: 'none', 'white', or 'nw'.
+            nw_lag: Newey-West lag (if cov_type='nw').
+            hc_type: White estimator type, 'HC0' or 'HC1'.
+            feasible: Optional eligibility DataFrame for masking asset returns (dates x assets).
+            n_jobs: Number of parallel jobs for asset-wise rolling regression; -1 uses all CPUs.
+            standardize_factor: Whether to standardize factor returns column-wise prior to regression.
+
+        Returns:
+            Evaluator: self with attributes populated:
+            - factor_exposure: DataFrame of rolling betas (dates x assets).
+            - factor_exposure_t: DataFrame of rolling t-stats for beta (dates x assets).
+            - ts_intercept: DataFrame of rolling alphas (dates x assets; if add_intercept=True).
+
+        Raises:
+            ValueError: If factor returns are not available, cannot be aligned, or rolling is
+                requested with multiple factors.
+        """
+        # Prepare asset returns
+        self._logger.debug(
+            f"Apply {'future' if horizon > 0 else 'past'} {abs(horizon)} day return"
+        )
+        asset_returns = self._future_return(horizon)
+
+        # Prepare factor returns
+        if not (
+            hasattr(self, "sorted_factor_return")
+            and self.sorted_factor_return is not None
+        ):
+            self._logger.error(
+                "No factor return founded, run `get_group_return` first."
+            )
+            return self
+
+        factor_returns = self.sorted_factor_return.to_frame()
+        if other_factor_returns is not None:
+            self._logger.debug(f"Add other_factor_returns to factor_returns")
+            factor_returns = pd.concat(
+                [factor_returns, other_factor_returns], axis=1, join="inner"
+            )
+
+        # Align indices
+        idx = asset_returns.index.intersection(factor_returns.index)
+        if idx.empty:
+            self._logger.error("No available date found.")
+            return self
+        asset_returns = asset_returns.loc[idx]
+        factor_returns = factor_returns.loc[idx]
+
+        # Apply feasible mask if provided
+        if feasible is not None:
+            feasible = feasible.reindex(index=idx, columns=asset_returns.columns)
+            asset_returns = asset_returns.where(feasible.astype(bool))
+            self._logger.debug("Feasible mask used.")
+
+        # Optionally standardize factor(s)
+        if standardize_factor:
+            factor_returns = factor_returns.copy()
+            for col in factor_returns.columns:
+                std_val = factor_returns[col].std(ddof=1)
+                factor_returns[col] = (
+                    factor_returns[col] - factor_returns[col].mean()
+                ) / (std_val if std_val and std_val > 0 else 1.0)
+            self._logger.debug("Factor standarized.")
+
+        # Rolling single-factor regression
+        if rolling:
+            x_series = factor_returns.copy()
+            dates = idx
+            assets = list(asset_returns.columns)
+
+            def _asset_rolling(col: str):
+                y = asset_returns[col].values
+                x = x_series.values
+                beta_s, alpha_s, t_s = self._rolling_regression(
+                    y=y,
+                    x=x,
+                    dates=dates,
+                    window=window,
+                    min_obs=min_obs,
+                    intercept=add_intercept,
+                )
+                return (
+                    beta_s,
+                    (alpha_s if add_intercept else None),
+                    t_s,
+                )
+
+            results = Parallel(n_jobs=n_jobs, backend="loky")(
+                delayed(_asset_rolling)(col) for col in assets
+            )
+
+            beta_df = pd.concat([r[0] for r in results], axis=0, keys=assets)
+            t_df = pd.concat([r[2] for r in results], axis=0, keys=assets)
+            alpha_df = (
+                pd.concat([r[1] for r in results], axis=0, keys=assets)
+                if add_intercept
+                else None
+            )
+            beta_df.columns = factor_returns.columns
+            t_df.columns = (
+                ["intercept"] if add_intercept else []
+            ) + factor_returns.columns.to_list()
+            t_df = t_df.add_suffix("-t")
+            alpha_df.columns = ["intercept"]
+            self.factor_exposure = beta_df
+            self.ts_intercept = alpha_df
+            self.factor_exposure_t = t_df
+            self._logger.info(
+                f"Rolling TS regression completed: window={window}, min_obs={min_obs}, "
+                f"intercept={add_intercept}, horizon={horizon}, factors={list(factor_returns.columns)}"
+            )
+            return self
+
+        # Full-sample multi-factor regression
+        x = factor_returns.values  # T x K
+        assets = list(asset_returns.columns)
+        alpha_vals: Dict[str, float] = {}
+        beta_vals: Dict[str, np.ndarray] = {}
+        tstats: Dict[str, np.ndarray] = {}
+
+        for asset in assets:
+            y = asset_returns[asset].values
+            beta, _, t, _, _ = self._ols_fit(
+                X=x,
+                y=y,
+                add_intercept=add_intercept,
+                cov_type=cov_type,
+                hc_type=hc_type,
+                nw_lag=nw_lag,
+            )
+            if add_intercept:
+                alpha_vals[asset] = float(beta[0])
+                beta_vals[asset] = beta[1:].astype(float)
+                tstats[asset] = t.astype(float)
+            else:
+                alpha_vals[asset] = np.nan
+                beta_vals[asset] = beta.astype(float)
+                tstats[asset] = t.astype(float)
+
+        self.factor_exposure = pd.DataFrame(beta_vals, index=factor_returns.columns).T
+        self.ts_intercept = pd.Series(alpha_vals, name="intercept")
+        self.factor_exposure_t = pd.DataFrame(
+            tstats,
+            index=factor_returns.columns,
+        ).T
+        self._logger.info(
+            f"Full-sample TS regression completed: intercept={add_intercept}, cov_type={cov_type}, "
+            f"nw_lag={nw_lag}, factors={list(factor_returns.columns)}"
         )
         return self
 
     def get_factor_exposure(
         self,
-        n: int = 10,
         horizon: int = 1,
-        other_factors: Optional[
-            Union[List[pd.DataFrame], Tuple[pd.DataFrame, ...]]
-        ] = None,
-        mode: Literal["conditional", "independent"] = "conditional",
+        other_factor_returns: Optional[pd.DataFrame] = None,
         feasible: Optional[pd.DataFrame] = None,
-        weight: Optional[pd.DataFrame] = None,
-        cell_weight: Literal["equal", "count"] = "equal",
         window: int = 252,
         min_obs: int = 60,
         intercept: bool = True,
         standardize_factor: bool = False,
         n_jobs: int = -1,
-        hl_mode: Literal["extreme", "first_last"] = "first_last",
-    ):
+    ) -> "Evaluator":
         """Rolling time-series regression: asset returns vs. constructed HL factor.
 
-        Steps:
-          1) Build HL factor via grouped portfolios (get_group_returns).
-          2) Perform rolling OLS of each asset's future returns on the HL factor.
+        This method builds the HL factor via grouped portfolios (requires `get_group_return`
+        to have been run), and then delegates the rolling regression to
+        `time_series_regression`.
 
         Args:
-            n: Number of groups for HL construction.
-            horizon: Return horizon for dependent variable.
-            other_factors: Optional list/tuple of control factor DataFrames for grouping (multi-factor study).
-            mode: Grouping mode used in HL construction: 'conditional' or 'independent'.
-            feasible: Optional eligibility DataFrame for grouping.
-            weight: Optional weights for group construction.
-            cell_weight: Bucket aggregation weight: 'equal' or 'count'.
+            horizon: Return horizon for the dependent variable.
+            feasible: Optional eligibility DataFrame for masking asset returns.
             window: Rolling window size for time-series regression.
             min_obs: Minimum valid observations in a window to compute regression.
-            intercept: Whether to include intercept.
+            intercept: Whether to include intercept in rolling regression.
             standardize_factor: Whether to standardize the HL factor prior to regression.
             n_jobs: Number of parallel jobs for asset-wise regression; -1 uses all CPUs.
-            hl_mode: HL derivation mode: 'extreme' or 'first_last'.
 
         Returns:
             Evaluator: self with attributes:
                 - ts_exposure_beta: DataFrame of rolling betas.
                 - ts_exposure_t: DataFrame of rolling t-statistics of beta.
                 - ts_exposure_alpha: DataFrame of rolling alphas (if intercept=True).
+
+        Raises:
+            ValueError: If no factor return is available (run `get_group_return` first).
         """
         if self.group_returns is None or self.sorted_factor_return is None:
-            self.get_group_returns(
-                n=n,
-                horizon=horizon,
-                other_factors=other_factors,
-                mode=mode,
-                feasible=feasible,
-                weight=weight,
-                cell_weight=cell_weight,
-                hl_mode=hl_mode,
+            self._logger.error(
+                "No factor return founded, please run `get_group_return` first."
             )
+            return self
 
-        f_ret = self.sorted_factor_return.copy()
-        future = self._future_return(horizon)
-        common_idx = f_ret.index.intersection(future.index)
-        f_ret = f_ret.loc[common_idx]
-        y_df = future.loc[common_idx].copy()
+        # Delegate to the unified time_series_regression (rolling single-factor)
+        self.time_series_regression(
+            horizon=horizon,
+            other_factor_returns=other_factor_returns,
+            rolling=True,
+            window=window,
+            min_obs=min_obs,
+            add_intercept=intercept,
+            cov_type="none",  # rolling uses plain OLS for speed/stability
+            feasible=feasible,
+            n_jobs=n_jobs,
+            standardize_factor=standardize_factor,
+        )
 
-        if feasible is not None:
-            feasible = feasible.reindex(index=common_idx, columns=y_df.columns)
-            y_df = y_df.where(feasible.astype(bool))
-
-        if standardize_factor:
-            std_val = f_ret.std(ddof=1)
-            f_std = (f_ret - f_ret.mean()) / (std_val if std_val > 0 else 1.0)
-            x_series = f_std
-        else:
-            x_series = f_ret
-
-        dates = common_idx
-        assets = list(y_df.columns)
-
-        def _asset_rolling(col: str):
-            y = y_df[col].values
-            x = x_series.values
-            beta_s, alpha_s, t_s = self._rolling_single_regression(
-                y=y,
-                x=x,
-                dates=dates,
-                window=window,
-                min_obs=min_obs,
-                intercept=intercept,
-            )
-            return (
-                beta_s.rename(col),
-                (alpha_s.rename(col) if intercept else None),
-                t_s.rename(col),
-            )
-
-        try:
-            results = Parallel(n_jobs=n_jobs, backend="loky")(
-                delayed(_asset_rolling)(col) for col in assets
-            )
-        except Exception as e:
-            self._logger.error(f"get_factor_exposure parallel error: {e}")
-            results = [_asset_rolling(col) for col in assets]
-
-        beta_df = pd.concat([r[0] for r in results], axis=1)
-        t_df = pd.concat([r[2] for r in results], axis=1)
-        alpha_df = pd.concat([r[1] for r in results], axis=1) if intercept else None
-
-        self.ts_exposure_beta = beta_df
-        self.ts_exposure_t = t_df
-        self.ts_exposure_alpha = alpha_df
         self._logger.info(
-            f"TS exposure evaluated: window={window}, min_obs={min_obs}, intercept={intercept}, "
-            f"n={n}, horizon={horizon}, mode={mode}, hl_mode={hl_mode}"
+            f"TS exposure evaluated (window={window}, min_obs={min_obs}, intercept={intercept}, horizon={horizon}) "
         )
         return self
 
-    def get_info_coef(self, freq: int = 1, method: str = "spearman"):
+    def get_info_coef(self, horizon: int = 1, method: str = "spearman"):
         """Evaluate Information Coefficient (IC) between factor exposures and future returns.
 
         Args:
-            freq: Return horizon in periods.
+            horizon: Return horizon in periods.
             method: Correlation method ('pearson', 'spearman', 'kendall').
 
         Returns:
@@ -1246,8 +1381,12 @@ class Evaluator:
                 - ic: Series of daily IC values.
                 - direction: Sign of mean IC to be used for portfolio direction.
         """
-        future = self._future_return(freq)
-        self.ic = self._factor.corrwith(future, axis=1, method=method)
+        self._logger.debug(
+            f"Apply {'future' if horizon > 0 else 'past'} {abs(horizon)} day return"
+        )
+        asset_returns = self._future_return(horizon)
+        self.ic = self._factor.corrwith(asset_returns, axis=1, method=method)
+        self.ic.name = "IC"
         self.direction = np.sign(self.ic.mean())
         return self
 
@@ -1257,7 +1396,6 @@ class Evaluator:
 
     def orthogonalize_factor(
         self,
-        target: pd.DataFrame,
         other_factors: List[pd.DataFrame],
         mode: Literal["cross_sectional", "time_series"] = "cross_sectional",
         intercept: bool = True,
@@ -1268,7 +1406,6 @@ class Evaluator:
         Supports cross-sectional (per date across assets) or time-series (per asset across time).
 
         Args:
-            target: DataFrame of the target factor to be orthogonalized.
             other_factors: List of control factor DataFrames aligned with the target.
             mode: 'cross_sectional' or 'time_series'.
             intercept: Whether to include intercept in the orthogonalization regression.
@@ -1282,6 +1419,7 @@ class Evaluator:
         if other_factors is None or len(other_factors) == 0:
             raise ValueError("other_factors must be provided for orthogonalization")
 
+        target = self._factor.copy()
         aligned = [target] + list(other_factors)
         idx = aligned[0].index
         cols = aligned[0].columns
@@ -1337,7 +1475,7 @@ class Evaluator:
         cov_type: Literal["none", "white"] = "white",
         white_type: str = "HC1",
         orthogonalize: bool = False,
-        other_factors: Optional[Dict[str, pd.DataFrame]] = None,
+        other_factors: Optional[List[pd.DataFrame]] = None,
     ):
         """Run cross-sectional regressions of future returns on characteristics (factors).
 
@@ -1365,11 +1503,13 @@ class Evaluator:
 
         # Build regressor dictionary: always include the primary factor
         X_dict: Dict[str, pd.DataFrame] = {
-            "factor": self._factor.reindex(index=idx, columns=cols)
+            self._name: self._factor.reindex(index=idx, columns=cols)
         }
         if other_factors is not None and len(other_factors) > 0:
-            for k, df in other_factors.items():
-                X_dict[k] = df.reindex(index=idx, columns=cols)
+            for i, df in enumerate(other_factors):
+                X_dict[df.attrs.get("name", f"f{i}")] = df.reindex(
+                    index=idx, columns=cols
+                )
 
         feasible = (
             feasible.reindex(index=idx, columns=cols).fillna(False)
@@ -1419,7 +1559,7 @@ class Evaluator:
                 if (w > 0).sum() == 0:
                     w = None
 
-            beta, se, t, _, r2 = self._ols_fit(
+            beta, _, t, _, r2 = self._ols_fit(
                 X=Xi[valid],
                 y=y[valid],
                 add_intercept=add_intercept,
@@ -1443,21 +1583,19 @@ class Evaluator:
             )
             r2_vals.append(r2)
 
-        self.cs_betas = pd.DataFrame(betas_rows, index=dates, columns=factor_names)
-        self.cs_tstats = pd.DataFrame(t_rows, index=dates, columns=factor_names)
-        self.cs_r2 = pd.Series(r2_vals, index=dates, name="R2_CS")
-        self._logger.info("Cross-sectional regression completed.")
+        self.factor_premia = pd.DataFrame(betas_rows, index=dates, columns=factor_names)
+        self.factor_premia_t = pd.DataFrame(
+            t_rows, index=dates, columns=factor_names
+        ).add_suffix("-t")
+        self.r2 = pd.Series(r2_vals, index=dates, name="R2_CS")
+        self._logger.info(
+            f"Cross-sectional regression completed (horizon={horizon}, add_intercept={add_intercept}, cov_type={cov_type})"
+        )
         return self
 
     def fama_macbeth(
         self,
-        horizon: int = 1,
-        feasible: Optional[pd.DataFrame] = None,
-        weight: Optional[pd.DataFrame] = None,
-        add_intercept: bool = True,
         nw_lag: int = 3,
-        orthogonalize: bool = False,
-        other_factors: Optional[Dict[str, pd.DataFrame]] = None,
     ):
         """Perform Fama-MacBeth regression to estimate factor risk premia.
 
@@ -1465,30 +1603,19 @@ class Evaluator:
         Step 2: Average the coefficients over time; compute Newey-West HAC t-stats across time.
 
         Args:
-            horizon: Return horizon in periods.
-            feasible: Optional eligibility mask DataFrame.
-            weight: Optional cross-sectional weights at each date.
-            add_intercept: Whether to include intercept in cross-sectional regressions.
             nw_lag: Newey-West lag for time-series of coefficients.
-            orthogonalize: Whether to orthogonalize factors in step 1 w.r.t. `other_factors`.
-            other_factors: Dict of name -> DataFrame for additional regressors (multi-factor case).
 
         Returns:
             Evaluator: self with attributes:
                 - fmb_premia: Series of average factor premia across time.
                 - fmb_tstats: Series of Newey-West HAC t-stats for premia.
         """
-        self.cross_sectional_regression(
-            horizon=horizon,
-            feasible=feasible,
-            weight=weight,
-            add_intercept=add_intercept,
-            cov_type="white",
-            white_type="HC1",
-            orthogonalize=orthogonalize,
-            other_factors=other_factors,
-        )
-        beta_ts = self.cs_betas  # dates x factors
+        if not (hasattr(self, "factor_premia") and self.factor_premia is not None):
+            self._logger.error(
+                "Cross sectional regression not performed, please run `cross_sectional_regression` first."
+            )
+
+        beta_ts = self.factor_premia  # dates x factors
         premia = beta_ts.mean(axis=0)
 
         # HAC t-stats for time-series of coefficients (mean-only regression)
@@ -1496,7 +1623,7 @@ class Evaluator:
         for k in beta_ts.columns:
             x = np.ones((beta_ts[k].shape[0], 1))
             y = beta_ts[k].values
-            beta_vec, _, t_vec, _, _ = self._ols_fit(
+            _, _, t_vec, _, _ = self._ols_fit(
                 X=x, y=y, add_intercept=False, cov_type="nw", nw_lag=nw_lag
             )
             tstats[k] = float(t_vec[0])
@@ -1504,122 +1631,37 @@ class Evaluator:
         self.fmb_premia = premia.rename("FMB_Premia")
         self.fmb_tstats = pd.Series(tstats, name="FMB_t")
         self._logger.info(
-            "Fama-MacBeth regression completed with Newey-West HAC t-stats."
+            f"Fama-MacBeth regression completed with Newey-West HAC t-stats. (nw_lag={nw_lag})"
         )
-        return self
-
-    # ===========================
-    # Time-series regressions and tests
-    # ===========================
-
-    def ts_regression(
-        self,
-        asset_returns: Optional[pd.DataFrame] = None,
-        factor_returns: Optional[pd.DataFrame] = None,
-        add_intercept: bool = True,
-        cov_type: Literal["none", "white", "nw"] = "nw",
-        nw_lag: int = 3,
-        hc_type: str = "HC1",
-    ):
-        """Run time-series regressions of asset returns on factor returns.
-
-        Computes alphas, betas, t-stats, and supports robust covariance via White or Newey-West.
-
-        Args:
-            asset_returns: DataFrame of asset returns (dates x assets). Defaults to next-period returns from prices.
-            factor_returns: DataFrame of factor returns (dates x K). Defaults to constructed HL factor if available.
-            add_intercept: Whether to include intercept (alpha).
-            cov_type: Covariance type: 'none', 'white', or 'nw'.
-            nw_lag: Newey-West lag for HAC (used if cov_type='nw').
-            hc_type: White estimator type ('HC0' or 'HC1').
-
-        Returns:
-            Evaluator: self with attributes:
-                - ts_alpha: Series of alphas per asset.
-                - ts_beta: DataFrame of betas (assets x factors).
-                - ts_alpha_t: Series of t-stats for alphas.
-                - ts_beta_t: DataFrame of t-stats for betas.
-        """
-        if asset_returns is None:
-            asset_returns = self._price.pct_change(fill_method=None).shift(-1)
-        if factor_returns is None:
-            if (
-                hasattr(self, "sorted_factor_return")
-                and self.sorted_factor_return is not None
-            ):
-                factor_returns = self.sorted_factor_return.to_frame("HL")
-            else:
-                raise ValueError(
-                    "factor_returns must be provided if HL factor is not computed."
-                )
-
-        idx = asset_returns.index.intersection(factor_returns.index)
-        asset_returns = asset_returns.loc[idx]
-        factor_returns = factor_returns.loc[idx]
-        X = factor_returns.values  # T x K
-        assets = list(asset_returns.columns)
-
-        alpha_vals: Dict[str, float] = {}
-        alpha_t: Dict[str, float] = {}
-        beta_vals: Dict[str, np.ndarray] = {}
-        beta_t: Dict[str, np.ndarray] = {}
-
-        for asset in assets:
-            y = asset_returns[asset].values
-            beta, _, t, _, _ = self._ols_fit(
-                X=X,
-                y=y,
-                add_intercept=add_intercept,
-                cov_type=cov_type,
-                hc_type=hc_type,
-                nw_lag=nw_lag,
-            )
-            if add_intercept:
-                alpha_vals[asset] = float(beta[0])
-                alpha_t[asset] = float(t[0])
-                beta_vals[asset] = beta[1:].astype(float)
-                beta_t[asset] = t[1:].astype(float)
-            else:
-                alpha_vals[asset] = np.nan
-                alpha_t[asset] = np.nan
-                beta_vals[asset] = beta.astype(float)
-                beta_t[asset] = t.astype(float)
-
-        self.ts_alpha = pd.Series(alpha_vals, name="alpha")
-        self.ts_alpha_t = pd.Series(alpha_t, name="alpha_t")
-        self.ts_beta = pd.DataFrame(beta_vals, index=factor_returns.columns).T
-        self.ts_beta_t = pd.DataFrame(beta_t, index=factor_returns.columns).T
-        self._logger.info("Time-series regression completed.")
         return self
 
     def grs_test(
         self,
-        asset_returns: Optional[pd.DataFrame] = None,
-        factor_returns: Optional[pd.DataFrame] = None,
+        horizon: int = 1,
         add_intercept: bool = True,
     ) -> Tuple[float, float]:
         """Compute the Gibbons-Ross-Shanken (GRS) test for joint alpha = 0.
 
         Args:
-            asset_returns: DataFrame of asset returns (dates x N). If None, uses next-period returns from prices.
-            factor_returns: DataFrame of factor returns (dates x K). Defaults to constructed HL factor if available.
+            horizon: Return horizon in periods.
             add_intercept: Whether time-series regressions include intercepts (required for GRS).
 
         Returns:
             Tuple of (GRS F-statistic, p-value).
         """
-        if asset_returns is None:
-            asset_returns = self._price.pct_change(fill_method=None).shift(-1)
-        if factor_returns is None:
-            if (
-                hasattr(self, "sorted_factor_return")
-                and self.sorted_factor_return is not None
-            ):
-                factor_returns = self.sorted_factor_return.to_frame("HL")
-            else:
-                raise ValueError(
-                    "factor_returns must be provided if HL factor is not computed."
-                )
+        self._logger.debug(
+            f"Apply {'future' if horizon > 0 else 'past'} {abs(horizon)} day return"
+        )
+        asset_returns = self._future_return(horizon)
+        if not (
+            hasattr(self, "sorted_factor_return")
+            and self.sorted_factor_return is not None
+        ):
+            self._logger.error(
+                "No factor return founded, run `get_group_return` first."
+            )
+            return self
+        factor_returns = self.sorted_factor_return.to_frame()
 
         idx = asset_returns.index.intersection(factor_returns.index)
         R = asset_returns.loc[idx].values  # T x N
@@ -1659,56 +1701,18 @@ class Evaluator:
         df1 = N
         df2 = Tn - N - K if (Tn - N - K) > 0 else max(Tn - K - 1, 1)
         try:
-            from scipy import stats
-
             p_val = float(1.0 - stats.f.cdf(grs, df1=df1, df2=df2))
         except Exception:
             p_val = np.nan
 
         self.grs_stat = grs
         self.grs_pval = p_val
-        self._logger.info("GRS test computed.")
+        self._logger.info(f"GRS test computed. (horizon={horizon}, add_intercept={add_intercept})")
         return grs, p_val
-
-    def alpha_tests(
-        self,
-        asset_returns: Optional[pd.DataFrame] = None,
-        factor_returns: Optional[pd.DataFrame] = None,
-        cov_type: Literal["none", "white", "nw"] = "nw",
-        nw_lag: int = 3,
-        hc_type: str = "HC1",
-    ) -> pd.DataFrame:
-        """Conduct individual alpha anomaly tests for assets.
-
-        Runs time-series regressions with intercept and returns alpha estimates and t-stats.
-
-        Args:
-            asset_returns: DataFrame of asset returns (dates x N).
-            factor_returns: DataFrame of factor returns (dates x K).
-            cov_type: Covariance type: 'none', 'white', or 'nw'.
-            nw_lag: Newey-West lag if cov_type='nw'.
-            hc_type: White estimator type ('HC0' or 'HC1').
-
-        Returns:
-            DataFrame: Columns ['alpha', 't'] indexed by asset names.
-        """
-        self.ts_regression(
-            asset_returns=asset_returns,
-            factor_returns=factor_returns,
-            add_intercept=True,
-            cov_type=cov_type,
-            nw_lag=nw_lag,
-            hc_type=hc_type,
-        )
-        res = pd.DataFrame({"alpha": self.ts_alpha, "t": self.ts_alpha_t})
-        self.alpha_test_result = res
-        self._logger.info("Alpha tests completed.")
-        return res
 
     def gmm_linear_pricing(
         self,
-        asset_returns: pd.DataFrame,
-        factor_returns: pd.DataFrame,
+        horizon: int = 1,
         two_step: bool = True,
     ) -> Dict[str, Union[np.ndarray, float]]:
         """Estimate linear factor risk premia via GMM under SDF m_t = 1 - lambda' F_t.
@@ -1718,8 +1722,7 @@ class Evaluator:
         g(lambda) = mean_t[(1 - lambda' F_t) R_t], W is a weighting matrix.
 
         Args:
-            asset_returns: DataFrame of asset returns (dates x N).
-            factor_returns: DataFrame of factor returns (dates x K).
+            horizon: Return horizon in periods.
             two_step: Whether to run two-step GMM (second step uses an estimated optimal weighting).
 
         Returns:
@@ -1729,6 +1732,19 @@ class Evaluator:
                 - 'pval': p-value of J (chi-square with df=N-K).
                 - 'W': Weighting matrix used (N x N).
         """
+        self._logger.debug(
+            f"Apply {'future' if horizon > 0 else 'past'} {abs(horizon)} day return"
+        )
+        asset_returns = self._future_return(horizon)
+        if not (
+            hasattr(self, "sorted_factor_return")
+            and self.sorted_factor_return is not None
+        ):
+            self._logger.error(
+                "No factor return founded, run `get_group_return` first."
+            )
+            return self
+        factor_returns = self.sorted_factor_return.to_frame()
         R = asset_returns.values  # T x N
         F = factor_returns.values  # T x K
         Tn, N = R.shape
@@ -1771,14 +1787,12 @@ class Evaluator:
         J = float(Tn * (g_hat.T @ W @ g_hat))  # scalar
         df = max(N - K, 1)
         try:
-            from scipy import stats
-
             pval = float(1.0 - stats.chi2.cdf(J, df=df))
         except Exception:
             pval = np.nan
 
         self.gmm_result = {"lambda": lambda_hat, "J": J, "pval": pval, "W": W}
-        self._logger.info("GMM linear pricing estimation completed.")
+        self._logger.info(f"GMM linear pricing estimation completed. (horizon={horizon}, two_step={two_step})")
         return self.gmm_result
 
     # ===========================
@@ -1821,8 +1835,6 @@ class Evaluator:
         t_stat = mean / se
 
         try:
-            from scipy import stats
-
             if alternative == "two-sided":
                 p_val = float(2.0 * stats.t.sf(abs(t_stat), df=n - 1))
             elif alternative == "greater":
@@ -1878,8 +1890,6 @@ class Evaluator:
             df = Z.shape[1]
             LM = n * r2 if np.isfinite(r2) else np.nan
             try:
-                from scipy import stats
-
                 p_val = float(1.0 - stats.chi2.cdf(LM, df=df))
             except Exception:
                 p_val = np.nan
