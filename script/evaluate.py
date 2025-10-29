@@ -144,7 +144,7 @@ def run_single_factor_pipeline(
         "group_returns": group_returns,
         "factor_exposure": e.factor_exposure,
         "factor_exposure_t": e.factor_exposure_t,
-        "pricing_error": e.pricing_error,
+        "pricing_error": e.ts_intercept,
         "factor_premia": e.factor_premia,
         "factor_premia_t": e.factor_premia_t,
         "r2": e.r2,
@@ -358,8 +358,11 @@ if __name__ == "__main__":
     import dotenv
 
     dotenv.load_dotenv()
+    
     output_path = "out/test.xlsx"
-    dps = factool.DuckParquetSource("data/naive_market_size")
+    factor_name = "naive_market_size"
+
+    dps = factool.DuckParquetSource(f"data/{factor_name}")
     source = factool.DuckParquetSource(os.getenv("QUOTESDAY_PATH"))
     df = dps.get_factor("log_market_size", begin="2025-01-01", end="2025-06-30")
     price = source.get_factor("close_post", begin="2025-01-01", end="2025-06-30")
@@ -405,6 +408,6 @@ if __name__ == "__main__":
                     name="stats",
                 ),
                 results["fmb_premia"].add_suffix("-fmb_premia"),
-                results["fmb_tstats"].add_suffix("-fmb_premia"),
+                results["fmb_tstats"].add_suffix("-fmb_premia-t"),
             ]
         ).to_frame("Stats").to_excel(writer, sheet_name="Stats")
