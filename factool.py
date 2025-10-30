@@ -528,7 +528,10 @@ class Evaluator:
     """
 
     def __init__(
-        self, factor: pd.DataFrame, price: pd.DataFrame, logger: Optional[Logger] = None
+        self,
+        factor: Union[pd.DataFrame, List[pd.DataFrame], Dict[str, pd.DataFrame]],
+        price: pd.DataFrame,
+        logger: Optional[Logger] = None,
     ):
         """Initialize the Evaluator.
 
@@ -544,16 +547,20 @@ class Evaluator:
             ValueError: If inputs cannot be aligned properly.
         """
         self._logger = logger or setup_logger("FactorEvaluator", level="DEBUG")
-        self._factor = factor.copy()
         self._price = price.copy()
-        self._name = self._factor.attrs.get("name")
+
+        self._factors: Dict[str, pd.DataFrame] = self._normalize_factors_input(factor)
+        self._names: List[str] = list(self._factors.keys())
+        self._name: str = self._names[0]
+        self._factor: pd.DataFrame = self._factors[self._name]
         self._align_factor_price()
+
         # Shifted price to anchor "t+1" to avoid look-ahead bias when computing future returns.
         self._shifted = self._price.shift(-1)
 
         # Placeholders for analysis outputs
-        self.group_returns: Optional[pd.DataFrame] = None
-        self.sorted_factor_return: Optional[pd.Series] = None
+        self.group_returns: Dict[str, pd.DataFrame] = {}
+        self.sorted_factor_return: pd.DataFrame = None
         self.factor_exposure: Optional[pd.DataFrame] = None
         self.ts_intercept: Optional[pd.DataFrame] = None
         self.factor_exposure_t: Optional[pd.DataFrame] = None
@@ -561,7 +568,7 @@ class Evaluator:
         self.direction: Optional[float] = None
         self.factor_premia: Optional[pd.DataFrame] = None
         self.factor_premia_t: Optional[pd.DataFrame] = None
-        self.r2: Optional[pd.Series] = None
+        self.factor_r2: Optional[pd.Series] = None
         self.fmb_premia: Optional[pd.Series] = None
         self.fmb_tstats: Optional[pd.Series] = None
         self.grs_stat: Optional[float] = None
@@ -572,19 +579,82 @@ class Evaluator:
     # Internal helpers
     # ===========================
 
+    @staticmethod
+    def _ensure_name(df: pd.DataFrame, fallback: str) -> Tuple[str, pd.DataFrame]:
+        nm = df.attrs.get("name", None)
+        if nm is None or not isinstance(nm, str) or len(nm.strip()) == 0:
+            nm = fallback
+        df = df.copy()
+        df.attrs["name"] = nm
+        return nm, df
+
+    def _normalize_factors_input(
+        self,
+        factor_in: Union[pd.DataFrame, List[pd.DataFrame], Dict[str, pd.DataFrame]],
+    ) -> Dict[str, pd.DataFrame]:
+        """Normalize factor input into format: {name: DataFrame} dictionary, ensuring unique name"""
+        out: Dict[str, pd.DataFrame] = {}
+        if isinstance(factor_in, pd.DataFrame):
+            name, df = self._ensure_name(factor_in, "factor")
+            out[name] = df.copy()
+        elif isinstance(factor_in, (list, tuple)):
+            used = set()
+            for i, df in enumerate(factor_in, start=1):
+                if not isinstance(df, pd.DataFrame):
+                    raise TypeError(
+                        "All items in factor list must be pandas DataFrame."
+                    )
+                name, dfi = self._ensure_name(df, f"factor_{i}")
+                base = name
+                k = 1
+                while name in used:
+                    name = f"{base}_{k}"
+                    k += 1
+                used.add(name)
+                dfi.attrs["name"] = name
+                out[name] = dfi.copy()
+        elif isinstance(factor_in, dict):
+            used = set()
+            for name, df in factor_in.items():
+                if not isinstance(df, pd.DataFrame):
+                    raise TypeError(
+                        "All values in factor dict must be pandas DataFrame."
+                    )
+                nm = str(name)
+                if len(nm.strip()) == 0:
+                    raise ValueError("Empty factor name is not allowed.")
+                base = nm
+                k = 1
+                while nm in used:
+                    nm = f"{base}_{k}"
+                    k += 1
+                used.add(nm)
+                dfi = df.copy()
+                dfi.attrs["name"] = nm
+                out[nm] = dfi
+        else:
+            raise TypeError(
+                "factor must be a DataFrame, a list/tuple of DataFrames, or a dict[name -> DataFrame]."
+            )
+        return out
+
     def _align_factor_price(self) -> None:
         """Align factor and price indices, with informative logging."""
-        if (factor_only := self._factor.index.difference(self._price.index)).size:
-            self._logger.warning(
-                f"Index {factor_only} in factor without price; these dates will be dropped."
-            )
-            self._factor = self._factor.drop(index=factor_only)
-
-        if (price_only := self._price.index.difference(self._factor.index)).size:
-            self._logger.warning(
-                f"Index {price_only} in price without factor; factors will be forward-filled to those dates."
-            )
-            self._factor = self._factor.reindex(index=self._price.index, method="ffill")
+        pidx = self._price.index
+        aligned: Dict[str, pd.DataFrame] = {}
+        for nm, f in self._factors.items():
+            if (extra := f.index.difference(pidx)).size:
+                self._logger.warning(
+                    f"[{nm}] Index {extra} in factor without price; these dates will be dropped."
+                )
+                f = f.drop(index=extra)
+            if (missing := pidx.difference(f.index)).size:
+                self._logger.warning(
+                    f"[{nm}] Index {missing} in price without factor; factors will be forward-filled to those dates."
+                )
+            f = f.reindex(index=pidx, method="ffill")
+            aligned[nm] = f
+        self._factors = aligned
 
     @staticmethod
     def _default_feasible_like(df: pd.DataFrame) -> pd.DataFrame:
@@ -627,35 +697,6 @@ class Evaluator:
             return np.nan
         w = w / total
         return float((w * r).sum())
-
-    @staticmethod
-    def _combine_bucket_group_returns(
-        bucket_results: List[Dict[int, float]],
-        bucket_sizes: List[int],
-        n: int,
-        cell_weight: Literal["equal", "count"],
-    ) -> Dict[str, float]:
-        """Combine group returns across buckets with either equal weights or bucket-count weights."""
-        g_ret = {f"G{i}": np.nan for i in range(1, n + 1)}
-        if len(bucket_results) == 0:
-            return g_ret
-
-        if cell_weight == "count" and np.sum(bucket_sizes) > 0:
-            bw = np.array(bucket_sizes, dtype="float")
-            bw = bw / bw.sum()
-        else:
-            bw = np.ones(len(bucket_results), dtype="float") / len(bucket_results)
-
-        for gi in range(1, n + 1):
-            vals = np.array([br[gi] for br in bucket_results], dtype="float")
-            m = np.isfinite(vals)
-            if m.sum() == 0:
-                g_ret[f"G{gi}"] = np.nan
-            else:
-                ww = bw[m]
-                ww = ww / ww.sum()
-                g_ret[f"G{gi}"] = float(np.dot(ww, vals[m]))
-        return g_ret
 
     @staticmethod
     def _add_intercept(X: np.ndarray) -> np.ndarray:
@@ -793,10 +834,11 @@ class Evaluator:
         window: int,
         min_obs: int,
         intercept: bool,
-    ) -> Tuple[pd.Series, Optional[pd.Series], pd.Series]:
+    ) -> Tuple[pd.Series, pd.Series]:
         """Run rolling OLS for regressor with optional intercept."""
-        betas = np.full((len(dates), x.shape[1]), np.nan, dtype="float")
-        alphas = np.full(len(dates), np.nan, dtype="float") if intercept else None
+        betas = np.full(
+            (len(dates), x.shape[1] + int(intercept)), np.nan, dtype="float"
+        )
         tstats = np.full(
             (len(dates), x.shape[1] + (1 if intercept else 0)), np.nan, dtype="float"
         )
@@ -805,7 +847,7 @@ class Evaluator:
             start = max(0, j - window + 1)
             y_win = y[start : j + 1]
             x_win = x[start : j + 1]
-            valid = np.isfinite(y_win) & np.isfinite(x_win)
+            valid = np.isfinite(y_win) & np.isfinite(x_win).all(axis=1)
             if valid.sum() < min_obs:
                 continue
             beta_vec, _, t_vec, _, _ = Evaluator._ols_fit(
@@ -813,23 +855,15 @@ class Evaluator:
             )
             beta_vec = beta_vec.astype(np.float64)
             t_vec = t_vec.astype(np.float64)
-            if intercept:
-                alphas[j] = beta_vec[0]
-                betas[j] = beta_vec[1:]
-                tstats[j] = t_vec
-            else:
-                betas[j] = beta_vec
-                tstats[j] = t_vec
+            betas[j] = beta_vec
+            tstats[j] = t_vec
 
         beta_s = pd.DataFrame(betas, index=dates)
-        alpha_s = (
-            pd.Series(alphas, index=dates, name="intercept") if intercept else None
-        )
         t_s = pd.DataFrame(
             tstats,
             index=dates,
         )
-        return beta_s, alpha_s, t_s
+        return beta_s, t_s
 
     # ===========================
     # Grouping and HL factor
@@ -839,14 +873,9 @@ class Evaluator:
         self,
         n: int = 10,
         horizon: int = 1,
-        other_factors: Optional[
-            Union[List[pd.DataFrame], Tuple[pd.DataFrame, ...]]
-        ] = None,
-        mode: Literal["conditional", "independent"] = "conditional",
+        mode: Literal["single", "conditional", "independent"] = "single",
         feasible: Optional[pd.DataFrame] = None,
         weight: Optional[pd.DataFrame] = None,
-        cell_weight: Literal["equal", "count"] = "equal",
-        hl_mode: Literal["extreme", "first_last"] = "first_last",
     ):
         """Compute grouped portfolio returns and HL (high-minus-low) factor returns.
 
@@ -866,18 +895,12 @@ class Evaluator:
             mean_j R[top_main_group in bucket j] - mean_j R[bottom_main_group in bucket j]
             with equal-weight averaging across buckets.
 
-        Single-factor case:
-        - Standard HL: 'extreme' (max minus min group) or 'first_last' (Gn - G1).
-
         Args:
             n: Number of quantile groups.
             horizon: Return horizon (in periods).
-            other_factors: Optional list/tuple of control factor DataFrames aligned with the main factor.
-            mode: Bucketing mode: 'conditional' or 'independent'.
+            mode: Bucketing mode: 'single', 'conditional' or 'independent'.
             feasible: Optional boolean DataFrame for asset eligibility.
             weight: Optional DataFrame of within-group weights.
-            cell_weight: Aggregation across buckets for reporting group_returns: 'equal' or 'count'.
-            hl_mode: HL derivation for single-factor case: 'extreme' or 'first_last'.
 
         Returns:
             Evaluator: self with attributes:
@@ -889,7 +912,7 @@ class Evaluator:
             TypeError: If other_factors is not None/list/tuple.
         """
         mode = str(mode).lower()
-        if mode not in ("independent", "conditional"):
+        if mode not in ("single", "independent", "conditional"):
             self._logger.error("Mode must be 'independent' or 'conditional'")
             return self
 
@@ -909,230 +932,208 @@ class Evaluator:
             else self._default_weight_like(asset_returns)
         )
 
-        if other_factors is None:
-            other_list: List[pd.DataFrame] = []
-        elif isinstance(other_factors, (list, tuple)):
-            other_list = [f.reindex_like(self._factor) for f in other_factors]
-        else:
-            self._logger.error("Other_factors must be None, list, or tuple")
-            return self
-
         dates = asset_returns.index
-        group_cols = [f"G{i}" for i in range(1, n + 1)]
-        rows: List[Dict[str, float]] = []
-        hl_values: List[float] = []
 
-        for dt in dates:
-            try:
-                eligible = (
-                    feasible.loc[dt].astype(bool)
-                    & asset_returns.loc[dt].notna()
-                    & self._factor.loc[dt].notna()
-                )
-                r_t = asset_returns.loc[dt]
-                w_t = weight.loc[dt]
-                f_t = self._factor.loc[dt]
-
-                g_ret = {c: np.nan for c in group_cols}
-                if eligible.sum() == 0:
-                    rows.append(g_ret)
-                    hl_values.append(np.nan)
-                    continue
-
-                # Single-factor case
-                if len(other_list) == 0:
-                    g_t = self._qcut_groups(f_t.where(eligible), n)
-                    if g_t.notna().sum() == 0:
-                        rows.append(g_ret)
-                        hl_values.append(np.nan)
-                        continue
-                    uniq = sorted(pd.unique(g_t.dropna().astype(int)))
-                    for gi in uniq:
-                        mask = g_t == gi
-                        ret_g = self._group_return(
-                            r_t.where(mask & eligible), w_t.where(mask & eligible)
-                        )
-                        g_ret[f"G{gi}"] = ret_g
-
-                    # HL for single-factor case
-                    if hl_mode == "extreme":
-                        max_v = np.nanmax([g_ret[c] for c in group_cols])
-                        min_v = np.nanmin([g_ret[c] for c in group_cols])
-                        hl_dt = (
-                            max_v - min_v
-                            if np.isfinite(max_v) and np.isfinite(min_v)
-                            else np.nan
-                        )
-                    else:
-                        hl_dt = (
-                            (g_ret[f"G{n}"] - g_ret["G1"])
-                            if np.isfinite(g_ret.get(f"G{n}", np.nan))
-                            and np.isfinite(g_ret.get("G1", np.nan))
-                            else np.nan
-                        )
-
-                    rows.append(g_ret)
-                    hl_values.append(hl_dt)
-                    continue
-
-                # Multi-factor: Independent bucketing (global groups)
-                if mode == "independent":
-                    # Control-factor global groups
-                    other_groups = [
-                        self._qcut_groups(of.loc[dt].where(eligible), n)
-                        for of in other_list
-                    ]
-                    g_t_global = self._qcut_groups(f_t.where(eligible), n)
-
-                    keys_df = pd.concat(other_groups, axis=1)
-                    keys_df.columns = (
-                        [f"g{i}" for i in range(keys_df.shape[1])]
-                        if keys_df.shape[1] > 1
-                        else ["g0"]
+        for name, factor in self._factors.items():
+            g_rets = []
+            other_names = list(filter(lambda x: x != name, self._names))
+            other_factors: List[pd.DataFrame] = [
+                self._factors[nm] for nm in other_names
+            ]
+            for dt in dates:
+                try:
+                    eligible = (
+                        feasible.loc[dt].astype(bool)
+                        & asset_returns.loc[dt].notna()
+                        & factor.loc[dt].notna()
                     )
+                    r_t: pd.Series = asset_returns.loc[dt]
+                    w_t: pd.Series = weight.loc[dt]
+                    f_t: pd.Series = factor.loc[dt]
 
-                    valid = eligible & keys_df.notna().all(axis=1) & g_t_global.notna()
-                    if valid.sum() == 0:
-                        rows.append(g_ret)
-                        hl_values.append(np.nan)
-                        continue
-
-                    tmp = keys_df[valid].copy()
-                    tmp["target_g"] = g_t_global[valid]
-                    tmp["ret"] = r_t[valid]
-                    tmp["w"] = w_t[valid]
-
-                    bucket_results: List[Dict[int, float]] = []
-                    bucket_sizes: List[int] = []
-
-                    # Compute returns for each cell (each control-bucket combination)
-                    for _, sub_idx in tmp.groupby(list(keys_df.columns)).groups.items():
-                        sub = tmp.loc[sub_idx]
-                        sub_group_ret = {i: np.nan for i in range(1, n + 1)}
-                        for gi in range(1, n + 1):
-                            sel = sub["target_g"] == gi
-                            if sel.sum() == 0:
-                                continue
-                            sub_group_ret[gi] = self._group_return(
-                                sub.loc[sel, "ret"], sub.loc[sel, "w"]
+                    if eligible.sum() == 0:
+                        if mode == "single" or len(other_factors) == 0:
+                            g_rets.append(
+                                pd.Series(
+                                    {f"{name}({i})": np.nan for i in range(1, n + 1)},
+                                    name=dt,
+                                )
                             )
-                        bucket_results.append(sub_group_ret)
-                        bucket_sizes.append(int(sub.shape[0]))
-
-                    # Aggregate group returns for reporting (equal/count)
-                    g_ret = self._combine_bucket_group_returns(
-                        bucket_results, bucket_sizes, n, cell_weight
-                    )
-
-                    # HL per your definition: sum over all cells of top group minus sum over all cells of bottom group
-                    top_vals = np.array(
-                        [br.get(n, np.nan) for br in bucket_results], dtype="float"
-                    )
-                    bot_vals = np.array(
-                        [br.get(1, np.nan) for br in bucket_results], dtype="float"
-                    )
-                    sum_top = (
-                        np.nansum(top_vals) if np.isfinite(top_vals).any() else np.nan
-                    )
-                    sum_bot = (
-                        np.nansum(bot_vals) if np.isfinite(bot_vals).any() else np.nan
-                    )
-                    hl_dt = (
-                        (sum_top - sum_bot)
-                        if np.isfinite(sum_top) and np.isfinite(sum_bot)
-                        else np.nan
-                    )
-
-                    rows.append(g_ret)
-                    hl_values.append(hl_dt)
-                    continue
-
-                # Multi-factor: Conditional (hierarchical on controls, local sorting of main factor)
-                buckets = [pd.Index(f_t.index[eligible])]
-                for of in other_list:
-                    new_buckets: List[pd.Index] = []
-                    s = of.loc[dt]
-                    for idxs in buckets:
-                        if len(idxs) == 0:
-                            continue
-                        g = self._qcut_groups(s.loc[idxs], n)
-                        if g.notna().sum() == 0:
-                            new_buckets.append(idxs)
-                            continue
-                        for label in sorted(g.dropna().unique()):
-                            sub_idx = g[g == label].index
-                            if len(sub_idx) > 0:
-                                new_buckets.append(pd.Index(sub_idx))
-                    buckets = new_buckets if len(new_buckets) > 0 else buckets
-
-                bucket_results: List[Dict[int, float]] = []
-                bucket_sizes: List[int] = []
-
-                for idxs in buckets:
-                    sub_idx = pd.Index(idxs).intersection(f_t.index[eligible])
-                    if len(sub_idx) == 0:
-                        continue
-                    g_local = self._qcut_groups(f_t.loc[sub_idx], n)
-                    if g_local.notna().sum() == 0:
+                        else:
+                            # Multi-factor sorting, a DataFrame should be appended
+                            g_rets.append(
+                                pd.Series(
+                                    {f"{name}({i})": np.nan for i in range(1, n + 1)},
+                                    name=dt,
+                                )
+                                .to_frame()
+                                .T
+                            )
                         continue
 
-                    sub_group_ret = {i: np.nan for i in range(1, n + 1)}
-                    uniq = sorted(pd.unique(g_local.dropna().astype(int)))
-                    for gi in uniq:
-                        top_mask = g_local == gi
-                        ret_g = self._group_return(
-                            r_t.loc[sub_idx].where(top_mask),
-                            w_t.loc[sub_idx].where(top_mask),
+                    if mode == "single" or len(other_factors) == 0:
+                        g_ret = pd.Series(
+                            {f"{name}({i})": np.nan for i in range(1, n + 1)}, name=dt
                         )
-                        sub_group_ret[gi] = ret_g
+                        g_t = self._qcut_groups(f_t.where(eligible), n)
+                        if g_t.notna().sum() == 0:
+                            g_rets.append(g_ret)
+                            continue
+                        uniq = sorted(pd.unique(g_t.dropna().astype(int)))
+                        for gi in uniq:
+                            mask = g_t == gi
+                            g_ret[f"{name}({gi})"] = self._group_return(
+                                r_t.where(mask & eligible), w_t.where(mask & eligible)
+                            )
+                        g_rets.append(g_ret)
+                        continue
 
-                    bucket_results.append(sub_group_ret)
-                    bucket_sizes.append(int(len(sub_idx)))
+                    # Independent bucketing (global groups)
+                    elif mode == "independent":
+                        g_ret = (
+                            pd.Series(
+                                {f"{name}({i})": np.nan for i in range(1, n + 1)},
+                                name=dt,
+                            )
+                            .to_frame()
+                            .T
+                        )
+                        # Control-factor global groups
+                        other_groups = [
+                            self._qcut_groups(of.loc[dt].where(eligible), n)
+                            for of in other_factors
+                        ]
+                        g_t_global = self._qcut_groups(f_t.where(eligible), n)
 
-                # Aggregate group returns for reporting (equal/count)
-                g_ret = self._combine_bucket_group_returns(
-                    bucket_results, bucket_sizes, n, cell_weight
-                )
+                        keys_df = pd.concat(other_groups, axis=1)
+                        keys_df.columns = other_names
 
-                # HL per your definition: equal-weight average across buckets of top minus bottom
-                top_vals = np.array(
-                    [br.get(n, np.nan) for br in bucket_results], dtype="float"
-                )
-                bot_vals = np.array(
-                    [br.get(1, np.nan) for br in bucket_results], dtype="float"
-                )
-                mean_top = (
-                    np.nanmean(top_vals) if np.isfinite(top_vals).any() else np.nan
-                )
-                mean_bot = (
-                    np.nanmean(bot_vals) if np.isfinite(bot_vals).any() else np.nan
-                )
-                hl_dt = (
-                    (mean_top - mean_bot)
-                    if np.isfinite(mean_top) and np.isfinite(mean_bot)
-                    else np.nan
-                )
+                        valid = (
+                            eligible & keys_df.notna().all(axis=1) & g_t_global.notna()
+                        )
+                        if valid.sum() == 0:
+                            g_rets.append(g_ret)
+                            continue
 
-                rows.append(g_ret)
-                hl_values.append(hl_dt)
+                        tmp = keys_df[valid].copy()
+                        tmp["target_g"] = g_t_global[valid]
+                        tmp["ret"] = r_t[valid]
+                        tmp["w"] = w_t[valid]
 
-            except Exception as e:
-                self._logger.error(f"get_group_returns error on {dt}: {e}")
-                rows.append({c: np.nan for c in group_cols})
-                hl_values.append(np.nan)
+                        bucket_results: List[Dict[int, float]] = []
 
-        self.group_returns = pd.DataFrame(rows, index=dates, columns=group_cols)
-        self.sorted_factor_return = pd.Series(hl_values, index=dates, name=self._name)
+                        # Compute returns for each cell (each control-bucket combination)
+                        for gn, sub_idx in tmp.groupby(
+                            list(keys_df.columns)
+                        ).groups.items():
+                            # For multi-factor and single factor, gn is not the same data type
+                            if not isinstance(gn, tuple):
+                                gn = (gn,)
+                            sub = tmp.loc[sub_idx]
+                            sub_group_ret = pd.Series(
+                                {i: np.nan for i in range(1, n + 1)},
+                                name="/".join(
+                                    [
+                                        f"{on}({int(g)})"
+                                        for on, g in zip(other_names, gn)
+                                    ]
+                                ),
+                            )
+                            for gi in range(1, n + 1):
+                                sel = sub["target_g"] == gi
+                                if sel.sum() == 0:
+                                    continue
+                                sub_group_ret[gi] = self._group_return(
+                                    sub.loc[sel, "ret"], sub.loc[sel, "w"]
+                                )
+                            bucket_results.append(sub_group_ret)
+
+                        # Aggregate group returns for reporting (equal/count)
+                        g_ret = pd.DataFrame(bucket_results)
+                        g_ret.columns = [f"{name}({i})" for i in range(1, n + 1)]
+                        g_rets.append(g_ret)
+                        continue
+
+                    elif mode == "conditional":
+                        # Conditional (hierarchical on controls, local sorting of main factor)
+                        buckets = [pd.Index(f_t.index[eligible], name="")]
+                        for nm, of in zip(other_names, other_factors):
+                            new_buckets: List[pd.Index] = []
+                            s = of.loc[dt]
+                            for idxs in buckets:
+                                if len(idxs) == 0:
+                                    continue
+                                g = self._qcut_groups(s.loc[idxs], n)
+                                if g.notna().sum() == 0:
+                                    new_buckets.append(idxs)
+                                    continue
+                                for label in sorted(g.dropna().unique()):
+                                    sub_idx = g[g == label].index
+                                    if len(sub_idx) > 0:
+                                        new_buckets.append(
+                                            pd.Index(
+                                                sub_idx,
+                                                name=idxs.name + f"/{nm}({label})",
+                                            )
+                                        )
+                            buckets = new_buckets if len(new_buckets) > 0 else buckets
+
+                        bucket_results: List[Dict[int, float]] = []
+                        for idxs in buckets:
+                            sub_idx = pd.Index(idxs).intersection(f_t.index[eligible])
+                            if len(sub_idx) == 0:
+                                continue
+                            g_local = self._qcut_groups(f_t.loc[sub_idx], n)
+                            if g_local.notna().sum() == 0:
+                                continue
+
+                            sub_group_ret = pd.Series(
+                                {f"{name}({i})": np.nan for i in range(1, n + 1)},
+                                name=idxs.name[1:],
+                            )
+                            uniq = sorted(pd.unique(g_local.dropna().astype(int)))
+                            for gi in uniq:
+                                top_mask = g_local == gi
+                                ret_g = self._group_return(
+                                    r_t.loc[sub_idx].where(top_mask),
+                                    w_t.loc[sub_idx].where(top_mask),
+                                )
+                                sub_group_ret[f"{name}({gi})"] = ret_g
+                            bucket_results.append(sub_group_ret)
+                        g_ret = pd.concat(bucket_results, axis=1).T
+                        g_rets.append(g_ret)
+
+                except Exception as e:
+                    self._logger.error(f"get_group_returns error on {dt}: {e}")
+
+            self.group_returns[name] = pd.concat(
+                g_rets, keys=dates, axis=int(isinstance(g_rets[0], pd.Series))
+            )
+            self.group_returns[name] = (
+                self.group_returns[name].T
+                if isinstance(g_rets[0], pd.Series)
+                else self.group_returns[name]
+            )
+        self.sorted_factor_return = pd.concat(
+            [
+                (
+                    sgr.iloc[:, -1].groupby(level=0).sum()
+                    - sgr.iloc[:, 0].groupby(level=0).sum()
+                )
+                for sgr in self.group_returns.values()
+            ],
+            keys=self.group_returns.keys(),
+            axis=1,
+        )
         self._logger.info(
             f"Group returns computed: n={n}, horizon={horizon}"
-            + (f", mode={mode}" if other_factors is not None else "")
+            + (f", mode={mode}" if len(self._factors) - 1 else "")
         )
         return self
 
     def time_series_regression(
         self,
         horizon: Optional[int] = 1,
-        other_factor_returns: Optional[pd.DataFrame] = None,
         rolling: bool = False,
         window: int = 252,
         min_obs: int = 60,
@@ -1142,7 +1143,6 @@ class Evaluator:
         hc_type: str = "HC1",
         feasible: Optional[pd.DataFrame] = None,
         n_jobs: int = -1,
-        standardize_factor: bool = False,
     ) -> "Evaluator":
         """Run time-series regressions of asset returns on factor returns.
 
@@ -1163,7 +1163,6 @@ class Evaluator:
             hc_type: White estimator type, 'HC0' or 'HC1'.
             feasible: Optional eligibility DataFrame for masking asset returns (dates x assets).
             n_jobs: Number of parallel jobs for asset-wise rolling regression; -1 uses all CPUs.
-            standardize_factor: Whether to standardize factor returns column-wise prior to regression.
 
         Returns:
             Evaluator: self with attributes populated:
@@ -1191,13 +1190,7 @@ class Evaluator:
             )
             return self
 
-        factor_returns = self.sorted_factor_return.to_frame()
-        if other_factor_returns is not None:
-            self._logger.debug(f"Add other_factor_returns to factor_returns")
-            factor_returns = pd.concat(
-                [factor_returns, other_factor_returns], axis=1, join="inner"
-            )
-
+        factor_returns = self.sorted_factor_return.copy()
         # Align indices
         idx = asset_returns.index.intersection(factor_returns.index)
         if idx.empty:
@@ -1212,16 +1205,6 @@ class Evaluator:
             asset_returns = asset_returns.where(feasible.astype(bool))
             self._logger.debug("Feasible mask used.")
 
-        # Optionally standardize factor(s)
-        if standardize_factor:
-            factor_returns = factor_returns.copy()
-            for col in factor_returns.columns:
-                std_val = factor_returns[col].std(ddof=1)
-                factor_returns[col] = (
-                    factor_returns[col] - factor_returns[col].mean()
-                ) / (std_val if std_val and std_val > 0 else 1.0)
-            self._logger.debug("Factor standarized.")
-
         # Rolling single-factor regression
         if rolling:
             x_series = factor_returns.copy()
@@ -1231,7 +1214,7 @@ class Evaluator:
             def _asset_rolling(col: str):
                 y = asset_returns[col].values
                 x = x_series.values
-                beta_s, alpha_s, t_s = self._rolling_regression(
+                beta_s, t_s = self._rolling_regression(
                     y=y,
                     x=x,
                     dates=dates,
@@ -1239,31 +1222,18 @@ class Evaluator:
                     min_obs=min_obs,
                     intercept=add_intercept,
                 )
-                return (
-                    beta_s,
-                    (alpha_s if add_intercept else None),
-                    t_s,
-                )
+                return (beta_s, t_s)
 
             results = Parallel(n_jobs=n_jobs, backend="loky")(
                 delayed(_asset_rolling)(col) for col in assets
             )
 
             beta_df = pd.concat([r[0] for r in results], axis=0, keys=assets)
-            t_df = pd.concat([r[2] for r in results], axis=0, keys=assets)
-            alpha_df = (
-                pd.concat([r[1] for r in results], axis=0, keys=assets)
-                if add_intercept
-                else None
-            )
-            beta_df.columns = factor_returns.columns
-            t_df.columns = (
-                ["intercept"] if add_intercept else []
-            ) + factor_returns.columns.to_list()
+            t_df = pd.concat([r[1] for r in results], axis=0, keys=assets)
+            beta_df.columns = (["intercept"] if add_intercept else []) + self._names
+            t_df.columns = (["intercept"] if add_intercept else []) + self._names
             t_df = t_df.add_suffix("-t")
-            alpha_df.columns = ["intercept"]
             self.factor_exposure = beta_df
-            self.ts_intercept = alpha_df
             self.factor_exposure_t = t_df
             self._logger.info(
                 f"Rolling TS regression completed: window={window}, min_obs={min_obs}, "
@@ -1312,12 +1282,10 @@ class Evaluator:
     def get_factor_exposure(
         self,
         horizon: int = 1,
-        other_factor_returns: Optional[pd.DataFrame] = None,
         feasible: Optional[pd.DataFrame] = None,
         window: int = 252,
         min_obs: int = 60,
         intercept: bool = True,
-        standardize_factor: bool = False,
         n_jobs: int = -1,
     ) -> "Evaluator":
         """Rolling time-series regression: asset returns vs. constructed HL factor.
@@ -1353,7 +1321,6 @@ class Evaluator:
         # Delegate to the unified time_series_regression (rolling single-factor)
         self.time_series_regression(
             horizon=horizon,
-            other_factor_returns=other_factor_returns,
             rolling=True,
             window=window,
             min_obs=min_obs,
@@ -1361,7 +1328,6 @@ class Evaluator:
             cov_type="none",  # rolling uses plain OLS for speed/stability
             feasible=feasible,
             n_jobs=n_jobs,
-            standardize_factor=standardize_factor,
         )
 
         self._logger.info(
@@ -1385,86 +1351,18 @@ class Evaluator:
             f"Apply {'future' if horizon > 0 else 'past'} {abs(horizon)} day return"
         )
         asset_returns = self._future_return(horizon)
-        self.ic = self._factor.corrwith(asset_returns, axis=1, method=method)
-        self.ic.name = "IC"
+        self.ic = [
+            factor.corrwith(asset_returns, axis=1, method=method)
+            for factor in self._factors.values()
+        ]
+        self.ic = pd.concat(self.ic, keys=self._names, axis=1)
+
         self.direction = np.sign(self.ic.mean())
         return self
 
     # ===========================
     # Cross-sectional analytics
     # ===========================
-
-    def orthogonalize_factor(
-        self,
-        other_factors: List[pd.DataFrame],
-        mode: Literal["cross_sectional", "time_series"] = "cross_sectional",
-        intercept: bool = True,
-    ) -> pd.DataFrame:
-        """Orthogonalize a factor with respect to other factors.
-
-        Performs regression of the target factor on other_factors and returns residuals.
-        Supports cross-sectional (per date across assets) or time-series (per asset across time).
-
-        Args:
-            other_factors: List of control factor DataFrames aligned with the target.
-            mode: 'cross_sectional' or 'time_series'.
-            intercept: Whether to include intercept in the orthogonalization regression.
-
-        Returns:
-            DataFrame: Residual factor exposures orthogonal to other_factors.
-
-        Raises:
-            ValueError: If other_factors are not provided or alignment fails.
-        """
-        if other_factors is None or len(other_factors) == 0:
-            raise ValueError("other_factors must be provided for orthogonalization")
-
-        target = self._factor.copy()
-        aligned = [target] + list(other_factors)
-        idx = aligned[0].index
-        cols = aligned[0].columns
-        aligned = [a.reindex(index=idx, columns=cols) for a in aligned]
-        target_aligned = aligned[0]
-        controls = aligned[1:]
-
-        res_df = pd.DataFrame(index=idx, columns=cols, dtype="float")
-
-        if mode == "cross_sectional":
-            for dt in idx:
-                y = target_aligned.loc[dt].values
-                X = np.column_stack([c.loc[dt].values for c in controls])
-                mask = np.isfinite(y) & np.all(np.isfinite(X), axis=1)
-                min_req = X.shape[1] + (1 if intercept else 0) + 1
-                if mask.sum() < min_req:
-                    res_df.loc[dt] = np.nan
-                    continue
-                beta, _, _, _, _ = self._ols_fit(
-                    X[mask], y[mask], add_intercept=intercept, cov_type="none"
-                )
-                Xw = self._add_intercept(X) if intercept else X
-                fitted = Xw @ beta
-                r = np.full_like(y, np.nan, dtype="float")
-                r[mask] = y[mask] - fitted[mask]
-                res_df.loc[dt] = r
-        else:
-            for asset in cols:
-                y = target_aligned[asset].values
-                X = np.column_stack([c[asset].values for c in controls])
-                mask = np.isfinite(y) & np.all(np.isfinite(X), axis=1)
-                min_req = X.shape[1] + (1 if intercept else 0) + 1
-                if mask.sum() < min_req:
-                    res_df[asset] = np.nan
-                    continue
-                beta, _, _, _, _ = self._ols_fit(
-                    X[mask], y[mask], add_intercept=intercept, cov_type="none"
-                )
-                Xw = self._add_intercept(X) if intercept else X
-                fitted = Xw @ beta
-                r = np.full_like(y, np.nan, dtype="float")
-                r[mask] = y[mask] - fitted[mask]
-                res_df[asset] = r
-
-        return res_df
 
     def cross_sectional_regression(
         self,
@@ -1474,8 +1372,6 @@ class Evaluator:
         add_intercept: bool = True,
         cov_type: Literal["none", "white"] = "white",
         white_type: str = "HC1",
-        orthogonalize: bool = False,
-        other_factors: Optional[List[pd.DataFrame]] = None,
     ):
         """Run cross-sectional regressions of future returns on characteristics (factors).
 
@@ -1489,8 +1385,6 @@ class Evaluator:
             add_intercept: Whether to include intercept in the cross-sectional regression.
             cov_type: Covariance estimator: 'none' or 'white'.
             white_type: White estimator type ('HC0' or 'HC1').
-            orthogonalize: Whether to orthogonalize regressors with respect to `other_factors`.
-            other_factors: Dict of name -> DataFrame for additional regressors (multi-factor case).
 
         Returns:
             Evaluator: self with attributes:
@@ -1501,16 +1395,6 @@ class Evaluator:
         future = self._future_return(horizon)
         idx, cols = future.index, future.columns
 
-        # Build regressor dictionary: always include the primary factor
-        X_dict: Dict[str, pd.DataFrame] = {
-            self._name: self._factor.reindex(index=idx, columns=cols)
-        }
-        if other_factors is not None and len(other_factors) > 0:
-            for i, df in enumerate(other_factors):
-                X_dict[df.attrs.get("name", f"f{i}")] = df.reindex(
-                    index=idx, columns=cols
-                )
-
         feasible = (
             feasible.reindex(index=idx, columns=cols).fillna(False)
             if feasible is not None
@@ -1519,26 +1403,13 @@ class Evaluator:
         if weight is not None:
             weight = weight.reindex(index=idx, columns=cols).fillna(0.0)
 
-        # Optional orthogonalization (residualizing each regressor against supplied other_factors)
-        if orthogonalize and other_factors is not None and len(other_factors) > 0:
-            Z_list = [
-                df.reindex(index=idx, columns=cols) for df in other_factors.values()
-            ]
-            for k in list(X_dict.keys()):
-                try:
-                    X_dict[k] = self.orthogonalize_factor(
-                        target=X_dict[k], other_factors=Z_list, mode="cross_sectional"
-                    )
-                except Exception as e:
-                    self._logger.error(f"Orthogonalization failed for factor {k}: {e}")
-
-        factor_names = list(X_dict.keys())
         dates = idx
-        betas_rows, t_rows, r2_vals = [], [], []
+        default = np.full(len(self._names) + int(add_intercept), np.nan)
+        betas, tstats, r2vals = [], [], []
 
         for dt in dates:
             y = future.loc[dt].values
-            Xi = np.column_stack([X_dict[k].loc[dt].values for k in factor_names])
+            Xi = np.column_stack([fct.loc[dt].values for fct in self._factors.values()])
 
             valid = (
                 feasible.loc[dt].astype(bool).values
@@ -1547,9 +1418,19 @@ class Evaluator:
             )
             min_req = Xi.shape[1] + (1 if add_intercept else 0) + 1
             if valid.sum() < min_req:
-                betas_rows.append({k: np.nan for k in factor_names})
-                t_rows.append({k: np.nan for k in factor_names})
-                r2_vals.append(np.nan)
+                betas.append(
+                    pd.Series(
+                        default,
+                        index=(["intercept"] if add_intercept else []) + self._names,
+                    )
+                )
+                tstats.append(
+                    pd.Series(
+                        default,
+                        index=(["intercept"] if add_intercept else []) + self._names,
+                    ).add_suffix("-t")
+                )
+                r2vals.append(np.nan)
                 continue
 
             w = None
@@ -1568,26 +1449,21 @@ class Evaluator:
                 weights=w[valid] if w is not None else None,
             )
             # Map coefficients: intercept is first (if present)
-            start_idx = 1 if add_intercept else 0
-            betas_rows.append(
-                {
-                    factor_names[i]: float(beta[start_idx + i])
-                    for i in range(len(factor_names))
-                }
+            betas.append(
+                pd.Series(
+                    beta, index=(["intercept"] if add_intercept else []) + self._names
+                )
             )
-            t_rows.append(
-                {
-                    factor_names[i]: float(t[start_idx + i])
-                    for i in range(len(factor_names))
-                }
+            tstats.append(
+                pd.Series(
+                    t, index=(["intercept"] if add_intercept else []) + self._names
+                ).add_suffix("-t")
             )
-            r2_vals.append(r2)
+            r2vals.append(r2)
 
-        self.factor_premia = pd.DataFrame(betas_rows, index=dates, columns=factor_names)
-        self.factor_premia_t = pd.DataFrame(
-            t_rows, index=dates, columns=factor_names
-        ).add_suffix("-t")
-        self.r2 = pd.Series(r2_vals, index=dates, name="R2_CS")
+        self.factor_premia = pd.concat(betas, keys=dates, axis=1).T
+        self.factor_premia_t = pd.concat(tstats, keys=dates, axis=1).T.add_suffix("-t")
+        self.factor_r2 = pd.Series(r2vals, index=dates, name="R2_CS")
         self._logger.info(
             f"Cross-sectional regression completed (horizon={horizon}, add_intercept={add_intercept}, cov_type={cov_type})"
         )
@@ -1639,7 +1515,7 @@ class Evaluator:
         self,
         horizon: int = 1,
         add_intercept: bool = True,
-    ) -> Tuple[float, float]:
+    ) -> "Evaluator":
         """Compute the Gibbons-Ross-Shanken (GRS) test for joint alpha = 0.
 
         Args:
@@ -1661,7 +1537,7 @@ class Evaluator:
                 "No factor return founded, run `get_group_return` first."
             )
             return self
-        factor_returns = self.sorted_factor_return.to_frame()
+        factor_returns = self.sorted_factor_return
 
         idx = asset_returns.index.intersection(factor_returns.index)
         R = asset_returns.loc[idx].values  # T x N
@@ -1707,8 +1583,10 @@ class Evaluator:
 
         self.grs_stat = grs
         self.grs_pval = p_val
-        self._logger.info(f"GRS test computed. (horizon={horizon}, add_intercept={add_intercept})")
-        return grs, p_val
+        self._logger.info(
+            f"GRS test computed. (horizon={horizon}, add_intercept={add_intercept})"
+        )
+        return self
 
     def gmm_linear_pricing(
         self,
@@ -1744,7 +1622,7 @@ class Evaluator:
                 "No factor return founded, run `get_group_return` first."
             )
             return self
-        factor_returns = self.sorted_factor_return.to_frame()
+        factor_returns = self.sorted_factor_return
         R = asset_returns.values  # T x N
         F = factor_returns.values  # T x K
         Tn, N = R.shape
@@ -1791,9 +1669,13 @@ class Evaluator:
         except Exception:
             pval = np.nan
 
-        self.gmm_result = {"lambda": lambda_hat, "J": J, "pval": pval, "W": W}
-        self._logger.info(f"GMM linear pricing estimation completed. (horizon={horizon}, two_step={two_step})")
-        return self.gmm_result
+        self.gmm_result = pd.Series(
+            {"lambda": lambda_hat, "J": J, "pval": pval, "W": W}, name="GMM"
+        )
+        self._logger.info(
+            f"GMM linear pricing estimation completed. (horizon={horizon}, two_step={two_step})"
+        )
+        return self
 
     # ===========================
     # Statistical utilities

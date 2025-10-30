@@ -1,6 +1,7 @@
-from typing import Dict, List, Optional, Union, Tuple
+import numpy as np
 import pandas as pd
 from factool import Evaluator
+from typing import Dict, List, Optional, Union, Tuple
 
 
 def run_single_factor_pipeline(
@@ -12,15 +13,12 @@ def run_single_factor_pipeline(
     n_groups: int = 10,
     horizon: int = 1,
     bucketing_mode: str = "conditional",
-    cell_weight: str = "equal",
-    hl_mode: str = "first_last",
     # IC params
     ic_method: str = "spearman",
     # Rolling TS exposure params
     ts_window: int = 252,
     ts_min_obs: int = 60,
     ts_intercept: bool = True,
-    ts_standardize_hl: bool = False,
     ts_n_jobs: int = -1,
     # Cross-sectional regression params
     cs_add_intercept: bool = True,
@@ -86,33 +84,41 @@ def run_single_factor_pipeline(
 
     # Step 1: IC and direction
     e.get_info_coef(horizon=horizon, method=ic_method)
-    ic_tstat = e.t_test(e.ic)
+    ic = e.ic
+    ic_tstat = e.ic.mean() / (e.ic.std() / np.sqrt(e.ic.shape[0]))
 
     # Step 2: Grouped portfolios and HL
     e.get_group_returns(
         n=n_groups,
         horizon=horizon,
-        other_factors=None,  # Single-factor study
         mode=bucketing_mode,
         feasible=feasible,
         weight=weight,
-        cell_weight=cell_weight,
-        hl_mode=hl_mode,
     )
-    hl_return = e.sorted_factor_return
-    group_returns = e.group_returns
+    factor_return = e.sorted_factor_return
+    group_returns = pd.concat(
+        [gr.groupby(level=0).mean() for gr in e.group_returns.values()],
+        axis=1,
+    )
+    group_value = pd.concat(
+        [
+            1 + group_returns.shift(1 + horizon).fillna(0),
+            1 + factor_return.shift(1 + horizon).fillna(0),
+        ],
+        axis=1,
+    ).cumprod()
 
     # Step 3: Rolling TS exposure vs HL
     e.get_factor_exposure(
         horizon=horizon,
-        other_factor_returns=None,
         feasible=feasible,
         window=ts_window,
         min_obs=ts_min_obs,
         intercept=ts_intercept,
-        standardize_factor=ts_standardize_hl,
         n_jobs=ts_n_jobs,
     )
+    factor_exposure_mean = e.factor_exposure.groupby(level=0).mean()
+    factor_exposure_mean_t = e.factor_exposure_t.groupby(level=0).mean()
 
     # Step 4: Cross-sectional regression on the single factor
     e.cross_sectional_regression(
@@ -122,232 +128,41 @@ def run_single_factor_pipeline(
         add_intercept=cs_add_intercept,
         cov_type=cs_cov_type,
         white_type=cs_white_type,
-        orthogonalize=False,
-        other_factors=None,  # Single-factor
     )
+    factor_premia = e.factor_premia
+    factor_premia_t = e.factor_premia_t
+    factor_r2 = e.factor_r2
 
     # Step 5: Fama-MacBeth regression
     e.fama_macbeth(nw_lag=fmb_nw_lag)
+    fmb_premia = e.fmb_premia
+    fmb_premia_t = e.fmb_tstats
 
     # Step 6: GRS test (joint alpha = 0)
-    grs_stat, grs_pval = e.grs_test(horizon=horizon, add_intercept=True)
+    e.grs_test(horizon=horizon, add_intercept=True)
+    grs_stat, grs_pval = e.grs_stat, e.grs_pval
 
     # Step 7: GMM pricing (optional) with HL factor
     gmm_result = None
     if run_gmm:
-        gmm_result = e.gmm_linear_pricing(horizon=horizon, two_step=True)
+        e.gmm_linear_pricing(horizon=horizon, two_step=True)
+        gmm_result = e.gmm_result
 
     return {
-        "ic": e.ic,
+        "ic": ic,
         "ic_tstat": ic_tstat,
-        "hl_return": hl_return,
+        "factor_return": factor_return,
         "group_returns": group_returns,
-        "factor_exposure": e.factor_exposure,
-        "factor_exposure_t": e.factor_exposure_t,
-        "pricing_error": e.ts_intercept,
-        "factor_premia": e.factor_premia,
-        "factor_premia_t": e.factor_premia_t,
-        "r2": e.r2,
-        "fmb_premia": e.fmb_premia,
-        "fmb_tstats": e.fmb_tstats,
+        "group_value": group_value,
+        "factor_exposure_mean": factor_exposure_mean,
+        "factor_exposure_mean_t": factor_exposure_mean_t,
+        "factor_premia": factor_premia,
+        "factor_premia_t": factor_premia_t,
+        "r2": factor_r2,
+        "fmb_premia": fmb_premia,
+        "fmb_premia_t": fmb_premia_t,
         "grs_stat": grs_stat,
         "grs_pval": grs_pval,
-        "gmm_result": gmm_result,
-    }
-
-
-def run_multi_factor_pipeline(
-    factor: pd.DataFrame,
-    price: pd.DataFrame,
-    other_factors_for_grouping: Optional[
-        Union[List[pd.DataFrame], Tuple[pd.DataFrame, ...]]
-    ] = None,
-    other_factors_for_cs: Optional[Dict[str, pd.DataFrame]] = None,
-    feasible: Optional[pd.DataFrame] = None,
-    weight: Optional[pd.DataFrame] = None,
-    # Grouping/HL params
-    n_groups: int = 10,
-    horizon: int = 1,
-    bucketing_mode: str = "conditional",
-    cell_weight: str = "equal",
-    hl_mode: str = "first_last",
-    # IC params (single-factor IC for primary factor)
-    ic_freq: int = 1,
-    ic_method: str = "spearman",
-    # Cross-sectional regression params (multi-factor)
-    cs_add_intercept: bool = True,
-    cs_cov_type: str = "white",
-    cs_white_type: str = "HC1",
-    orthogonalize_cs: bool = False,
-    # Fama-MacBeth params
-    fmb_add_intercept: bool = True,
-    fmb_nw_lag: int = 3,
-    # Time-series regression params (if you have factor return series beyond HL)
-    ts_asset_returns: Optional[pd.DataFrame] = None,
-    ts_factor_returns: Optional[pd.DataFrame] = None,
-    ts_add_intercept: bool = True,
-    ts_cov_type: str = "nw",
-    ts_nw_lag: int = 3,
-    ts_hc_type: str = "HC1",
-    # GMM pricing params
-    run_gmm: bool = False,
-) -> Dict[str, object]:
-    """Run a full multi-factor testing pipeline.
-
-    Key differences vs single-factor:
-      - Grouping for HL can be controlled using `other_factors_for_grouping` (list/tuple).
-      - Cross-sectional regressions include multiple regressors via `other_factors_for_cs` (dict).
-      - Fama-MacBeth estimation provides premia and NW t-stats for all included regressors.
-      - Time-series regressions can use user-supplied factor returns DataFrame with multiple columns (K factors).
-      - GMM pricing typically needs a multi-column factor_returns with K factors.
-
-    Args:
-      factor: Primary factor DataFrame (dates x assets).
-      price: Asset prices (dates x assets).
-      other_factors_for_grouping: Control factors (list/tuple of DataFrames) for bucketing HL.
-      other_factors_for_cs: Dict name -> DataFrame for cross-sectional multi-factor regressions.
-      feasible: Optional eligibility mask.
-      weight: Optional within-group weights.
-      n_groups: Number of quantile groups for HL construction.
-      horizon: Return horizon in periods.
-      bucketing_mode: 'conditional' or 'independent' for grouping.
-      cell_weight: 'equal' or 'count' across buckets.
-      hl_mode: HL derivation: 'first_last' or 'extreme'.
-      ic_freq: IC horizon; computed for primary factor only.
-      ic_method: Correlation method.
-      cs_add_intercept: Include intercept in cross-sectional regressions.
-      cs_cov_type: 'none' or 'white'.
-      cs_white_type: White type.
-      orthogonalize_cs: Whether to residualize regressors using other_factors_for_cs.
-      fmb_add_intercept: Include intercept in CS step for FMB.
-      fmb_nw_lag: Newey-West lag for FMB.
-      ts_asset_returns: Optional asset returns; defaults to next-period returns from prices.
-      ts_factor_returns: Optional factor returns (dates x K). If None, HL is used (single-factor TS only).
-      ts_add_intercept: Include intercept in time-series regressions.
-      ts_cov_type: 'none', 'white', or 'nw'.
-      ts_nw_lag: Newey-West lag.
-      ts_hc_type: White estimator type.
-      benchmark: Optional benchmark index series.
-      commission: Transaction cost per trade.
-      run_gmm: Whether to run GMM pricing using ts_factor_returns.
-
-    Returns:
-      Dict of outputs similar to run_single_factor_pipeline, plus:
-        - cs_betas / cs_tstats include multiple regressors
-        - ts_regression uses provided factor return matrix if available
-        - gmm_result (if run_gmm=True and ts_factor_returns provided)
-    """
-    e = Evaluator(factor=factor, price=price)
-
-    # IC for the primary factor
-    e.get_info_coef(horizon=ic_freq, method=ic_method)
-    ic_tstat = e.t_test(e.ic)
-
-    # Grouped portfolios and HL (controlled by other_factors_for_grouping)
-    e.get_group_returns(
-        n=n_groups,
-        horizon=horizon,
-        other_factors=other_factors_for_grouping,
-        mode=bucketing_mode,
-        feasible=feasible,
-        weight=weight,
-        cell_weight=cell_weight,
-        hl_mode=hl_mode,
-    )
-    hl_return = e.sorted_factor_return
-    group_returns = e.group_returns
-
-    # Cross-sectional multi-factor regression
-    e.cross_sectional_regression(
-        horizon=horizon,
-        feasible=feasible,
-        weight=weight,
-        add_intercept=cs_add_intercept,
-        cov_type=cs_cov_type,
-        white_type=cs_white_type,
-        orthogonalize=orthogonalize_cs,
-        other_factors=other_factors_for_cs,  # Multi-factor regressors
-    )
-
-    # Fama-MacBeth (multi-factor premia & NW t-stats)
-    e.fama_macbeth(
-        horizon=horizon,
-        feasible=feasible,
-        weight=weight,
-        add_intercept=fmb_add_intercept,
-        nw_lag=fmb_nw_lag,
-        orthogonalize=orthogonalize_cs,
-        other_factors=other_factors_for_cs,
-    )
-
-    # Time-series regressions
-    # If ts_factor_returns is None, defaults to HL factor only (single-factor TS).
-    e.ts_regression(
-        asset_returns=ts_asset_returns,  # if None -> next-period returns from prices
-        factor_returns=ts_factor_returns,  # provide multi-factor returns (dates x K) if available
-        add_intercept=ts_add_intercept,
-        cov_type=ts_cov_type,
-        nw_lag=ts_nw_lag,
-        hc_type=ts_hc_type,
-    )
-
-    # Alpha tests
-    alpha_tests = e.alpha_tests(
-        asset_returns=ts_asset_returns,
-        factor_returns=(
-            ts_factor_returns
-            if ts_factor_returns is not None
-            else e.sorted_factor_return.to_frame("HL")
-        ),
-        cov_type=ts_cov_type,
-        nw_lag=ts_nw_lag,
-        hc_type=ts_hc_type,
-    )
-
-    # GRS test
-    grs_stat, grs_pval = e.grs_test(
-        asset_returns=ts_asset_returns,
-        factor_returns=(
-            ts_factor_returns
-            if ts_factor_returns is not None
-            else e.sorted_factor_return.to_frame("HL")
-        ),
-        add_intercept=True,
-    )
-
-    # Optional GMM pricing for multi-factor returns
-    gmm_result = None
-    if run_gmm and ts_factor_returns is not None:
-        asset_ret = (
-            ts_asset_returns
-            if ts_asset_returns is not None
-            else e._price.pct_change().shift(-1).dropna(how="all")
-        )
-        # Align indices
-        common_idx = asset_ret.index.intersection(ts_factor_returns.index)
-        gmm_result = e.gmm_linear_pricing(
-            asset_returns=asset_ret.loc[common_idx],
-            factor_returns=ts_factor_returns.loc[common_idx],
-            two_step=True,
-        )
-
-    return {
-        "ic": e.ic,
-        "ic_tstat": ic_tstat,
-        "hl_return": hl_return,
-        "group_returns": group_returns,
-        "cs_betas": e.factor_premia,
-        "cs_tstats": e.factor_premia_t,
-        "cs_r2": e.r2,
-        "fmb_premia": e.fmb_premia,
-        "fmb_tstats": e.fmb_tstats,
-        "ts_alpha": e.ts_alpha,
-        "ts_alpha_t": e.ts_alpha_t,
-        "ts_beta": e.ts_beta,
-        "ts_beta_t": e.ts_beta_t,
-        "grs_stat": grs_stat,
-        "grs_pval": grs_pval,
-        "alpha_test_result": alpha_tests,
         "gmm_result": gmm_result,
     }
 
@@ -358,56 +173,77 @@ if __name__ == "__main__":
     import dotenv
 
     dotenv.load_dotenv()
-    
+
     output_path = "out/test.xlsx"
     factor_name = "naive_market_size"
+    n_groups = 3
+    bucketing_mode = "independent"
+    ts_n_jobs = -1
 
     dps = factool.DuckParquetSource(f"data/{factor_name}")
     source = factool.DuckParquetSource(os.getenv("QUOTESDAY_PATH"))
     df = dps.get_factor("log_market_size", begin="2025-01-01", end="2025-06-30")
     price = source.get_factor("close_post", begin="2025-01-01", end="2025-06-30")
 
-    results = run_single_factor_pipeline(df, price, ts_n_jobs=-1)
+    results = run_single_factor_pipeline(
+        [df],
+        price,
+        bucketing_mode=bucketing_mode,
+        n_groups=n_groups,
+        ts_n_jobs=ts_n_jobs,
+    )
 
     with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
-        results["ic"].to_frame().to_excel(writer, sheet_name="IC")
-
-        results["group_returns"]["hl_return"] = results["hl_return"]
-        results["group_returns"].to_excel(writer, sheet_name="Returns")
-        (results["group_returns"].fillna(0) + 1).cumprod().to_excel(
-            writer, sheet_name="Cumulative Returns"
+        results["ic"].reset_index().to_excel(writer, index=False, sheet_name="IC")
+        results["factor_return"].reset_index().to_excel(
+            writer, index=False, sheet_name="Factor Return"
+        )
+        results["group_returns"].reset_index().to_excel(
+            writer, index=False, sheet_name="Group Return"
+        )
+        results["group_value"].reset_index().to_excel(
+            writer, index=False, sheet_name="Group Value"
         )
 
         pd.concat(
             [
-                results["factor_exposure"],
-                results["pricing_error"],
-                results["factor_exposure_t"],
+                results["factor_exposure_mean"],
+                results["factor_exposure_mean_t"],
             ],
             axis=1,
-        ).groupby(level=0).mean().to_excel(writer, sheet_name="Time Series Regression")
+        ).reset_index(names=["code"]).to_excel(
+            writer, index=False, sheet_name="Time Series Regression"
+        )
 
         pd.concat(
             [
                 results["factor_premia"],
-                results["r2"].to_frame(),
                 results["factor_premia_t"],
+                results["r2"].to_frame(),
             ],
             axis=1,
-        ).to_excel(writer, sheet_name="Cross Sectional Regression")
+        ).reset_index(names=["date"]).to_excel(
+            writer, index=False, sheet_name="Cross Sectional Regression"
+        )
 
         pd.concat(
             [
+                results["ic_tstat"].add_suffix("-ic-t"),
                 pd.Series(
                     {
-                        "ic_t": results["ic_tstat"][0],
-                        "ic_p": results["ic_tstat"][1],
                         "grs_stat": results["grs_stat"],
                         "grs_pval": results["grs_pval"],
                     },
-                    name="stats",
                 ),
                 results["fmb_premia"].add_suffix("-fmb_premia"),
-                results["fmb_tstats"].add_suffix("-fmb_premia-t"),
+                results["fmb_premia_t"].add_suffix("-fmb_premia-t"),
+                pd.Series(
+                    {
+                        "gmm_J": results["gmm_result"]["J"],
+                        "gmm_pval": results["gmm_result"]["pval"],
+                    }
+                ),
             ]
-        ).to_frame("Stats").to_excel(writer, sheet_name="Stats")
+        ).to_frame("Stats").reset_index(names=["stat_name"]).to_excel(
+            writer, index=False, sheet_name="Stats"
+        )
