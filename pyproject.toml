@@ -27,14 +27,16 @@ dependencies = [
     "parquool>=0.0.3",
     "matplotlib>=3.9",
     "openpyxl>=3.0",
+    "quool>=7.0.11",
+    "scipy>=1.16.3",
 ]
+
+[tool.setuptools]
+py-modules = ["factool"]
+
+[project.urls]
+Homepage = "https://github.com/ppoak/factool"
 
 [[tool.uv.index]]
 url = "https://pypi.tuna.tsinghua.edu.cn/simple"
 default = true
-
-[project.urls]
-Homepage = "https://github.com/ppoak/factorlab"
-
-[tool.setuptools.packages]
-find = { include = ["factool"] }

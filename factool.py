@@ -640,21 +640,20 @@ class Evaluator:
 
     def _align_factor_price(self) -> None:
         """Align factor and price indices, with informative logging."""
-        pidx = self._price.index
-        aligned: Dict[str, pd.DataFrame] = {}
+        cidx = self._price.index
+        ccol = self._price.columns
+        for f in self._factors.values():
+            cidx = cidx.union(f.index)
+            ccol = ccol.union(f.columns)
+        self._logger.info(f"Added {cidx.difference(self._price.index).size} rows to price matrix")
+        self._price = self._price.reindex(index=cidx)
+        self._logger.info(f"Added {ccol.difference(self._price.columns).size} cols to price matrix")
+        self._price = self._price.reindex(columns=ccol)
         for nm, f in self._factors.items():
-            if (extra := f.index.difference(pidx)).size:
-                self._logger.warning(
-                    f"[{nm}] Index {extra} in factor without price; these dates will be dropped."
-                )
-                f = f.drop(index=extra)
-            if (missing := pidx.difference(f.index)).size:
-                self._logger.warning(
-                    f"[{nm}] Index {missing} in price without factor; factors will be forward-filled to those dates."
-                )
-            f = f.reindex(index=pidx, method="ffill")
-            aligned[nm] = f
-        self._factors = aligned
+            self._logger.info(f"Added {cidx.difference(f.index).size} rows to {nm} matrix")
+            f = f.reindex(index=cidx)
+            self._logger.info(f"Added {ccol.difference(f.columns).size} cols to {nm} matrix")
+            f = f.reindex(columns=ccol)
 
     @staticmethod
     def _default_feasible_like(df: pd.DataFrame) -> pd.DataFrame:
@@ -917,7 +916,7 @@ class Evaluator:
             return self
 
         self._logger.debug(
-            f"Apply {'future' if horizon > 0 else 'past'} {abs(horizon)} day return"
+            f"Apply {'future' if horizon > 0 else 'past'} {abs(horizon)} day return for group return"
         )
         asset_returns = self._future_return(horizon)
 
@@ -952,6 +951,7 @@ class Evaluator:
                     f_t: pd.Series = factor.loc[dt]
 
                     if eligible.sum() == 0:
+                        self._logger.warning(f"No eligible asset on {dt} when computing group return")
                         if mode == "single" or len(other_factors) == 0:
                             g_rets.append(
                                 pd.Series(
@@ -1176,7 +1176,7 @@ class Evaluator:
         """
         # Prepare asset returns
         self._logger.debug(
-            f"Apply {'future' if horizon > 0 else 'past'} {abs(horizon)} day return"
+            f"Apply {'future' if horizon > 0 else 'past'} {abs(horizon)} day return for time series regression"
         )
         asset_returns = self._future_return(horizon)
 
@@ -1348,7 +1348,7 @@ class Evaluator:
                 - direction: Sign of mean IC to be used for portfolio direction.
         """
         self._logger.debug(
-            f"Apply {'future' if horizon > 0 else 'past'} {abs(horizon)} day return"
+            f"Apply {'future' if horizon > 0 else 'past'} {abs(horizon)} day return for information coefficiency"
         )
         asset_returns = self._future_return(horizon)
         self.ic = [
@@ -1392,6 +1392,9 @@ class Evaluator:
                 - cs_tstats: DataFrame (dates x factors) of t-stats.
                 - cs_r2: Series of cross-sectional R-squared per date.
         """
+        self._logger.debug(
+            f"Apply {'future' if horizon > 0 else 'past'} {abs(horizon)} day return for cross sectional regression"
+        )
         future = self._future_return(horizon)
         idx, cols = future.index, future.columns
 
@@ -1418,6 +1421,7 @@ class Evaluator:
             )
             min_req = Xi.shape[1] + (1 if add_intercept else 0) + 1
             if valid.sum() < min_req:
+                self._logger.warning(f"Valid asset ({valid.sum()}) is less than min_req ({min_req}) on {dt}")
                 betas.append(
                     pd.Series(
                         default,
@@ -1526,7 +1530,7 @@ class Evaluator:
             Tuple of (GRS F-statistic, p-value).
         """
         self._logger.debug(
-            f"Apply {'future' if horizon > 0 else 'past'} {abs(horizon)} day return"
+            f"Apply {'future' if horizon > 0 else 'past'} {abs(horizon)} day return for Gibbons-Ross-Shanken test"
         )
         asset_returns = self._future_return(horizon)
         if not (
@@ -1611,7 +1615,7 @@ class Evaluator:
                 - 'W': Weighting matrix used (N x N).
         """
         self._logger.debug(
-            f"Apply {'future' if horizon > 0 else 'past'} {abs(horizon)} day return"
+            f"Apply {'future' if horizon > 0 else 'past'} {abs(horizon)} day return for GMM pricing"
         )
         asset_returns = self._future_return(horizon)
         if not (
