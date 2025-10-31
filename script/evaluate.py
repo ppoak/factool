@@ -1,10 +1,10 @@
 import numpy as np
 import pandas as pd
 from factool import Evaluator
-from typing import Dict, List, Optional, Union, Tuple
+from typing import Dict, Optional
 
 
-def run_single_factor_pipeline(
+def run_factor_pipeline(
     factor: pd.DataFrame,
     price: pd.DataFrame,
     feasible: Optional[pd.DataFrame] = None,
@@ -185,9 +185,9 @@ if __name__ == "__main__":
     df = dps.get_factor("log_market_size", begin="2025-01-01", end="2025-06-30")
     price = source.get_factor("close_post", begin="2025-01-01", end="2025-06-30")
 
-    results = run_single_factor_pipeline(
-        [df],
-        price,
+    results = run_factor_pipeline(
+        factor=[df],
+        price=price,
         bucketing_mode=bucketing_mode,
         n_groups=n_groups,
         ts_n_jobs=ts_n_jobs,

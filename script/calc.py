@@ -38,7 +38,7 @@ def calc(
 if __name__ == "__main__":
     load_dotenv()
     from parquool import notify_task
-    factor_file_path = "generated/capital_gain_overhang.py"
+    factor_file_path = "generated/barra_sizes.py"
     notifier = notify_task()
 
     print(
@@ -46,7 +46,7 @@ if __name__ == "__main__":
             factor_file_path,
             "2015-01-01",
             "now",
-            n_jobs=26,
+            n_jobs=-1,
             save_path=os.getenv("FACTOR_DATA_PATH"),
         )
     )
