@@ -3,6 +3,8 @@ import pandas as pd
 from factool import Evaluator
 from typing import Dict, Optional
 
+import quool
+
 
 def run_factor_pipeline(
     factor: pd.DataFrame,
@@ -29,63 +31,13 @@ def run_factor_pipeline(
     # GMM pricing params
     run_gmm: bool = True,
 ) -> Dict[str, object]:
-    """Run a full single-factor testing pipeline.
-
-    Steps:
-      1) Initialize Evaluator and align data.
-      2) Compute Information Coefficient (IC) and determine direction.
-      3) Construct grouped portfolios and HL factor return.
-      4) Rolling time-series exposure of each asset to the HL factor.
-      5) Cross-sectional regressions of future returns on the factor.
-      6) Fama-MacBeth regression (premia + NW t-stats).
-      7) GRS joint alpha test.
-      8) GMM linear pricing for HL factor (optional).
-
-    Args:
-      factor: DataFrame of factor exposures (dates x assets).
-      price: DataFrame of asset prices (dates x assets).
-      feasible: Optional eligibility mask (dates x assets).
-      weight: Optional within-group weights (dates x assets).
-      n_groups: Number of quantile groups for HL construction.
-      horizon: Return horizon for dependent variables.
-      bucketing_mode: 'conditional' or 'independent' bucketing.
-      cell_weight: 'equal' or 'count' aggregation across buckets.
-      hl_mode: HL derivation: 'first_last' or 'extreme'.
-      ic_freq: IC horizon in periods.
-      ic_method: Correlation method ('spearman' recommended).
-      ts_window: Rolling window length for exposure.
-      ts_min_obs: Minimum observations per rolling window.
-      ts_intercept: Include intercept in rolling exposure.
-      ts_standardize_hl: Standardize HL before rolling exposure.
-      ts_n_jobs: Parallel jobs for rolling exposure.
-      benchmark: Optional benchmark series for backtest.
-      commission: Transaction cost per trade.
-      cs_add_intercept: Include intercept in cross-sectional regressions.
-      cs_cov_type: 'none' or 'white' covariance in cross-sectional regressions.
-      cs_white_type: White estimator type ('HC0' or 'HC1').
-      fmb_nw_lag: Newey-West lag for FMB t-stats.
-      run_gmm: Whether to run GMM linear pricing for HL factor.
-
-    Returns:
-      Dict of outputs with keys:
-        - evaluator: the Evaluator instance with all computed attributes
-        - ic: daily IC series
-        - hl_return: HL factor return series
-        - group_returns: grouped portfolio returns dataframe (G1..Gn)
-        - ts_exposure_beta / ts_exposure_t / ts_exposure_alpha
-        - cs_betas / cs_tstats / cs_r2
-        - fmb_premia / fmb_tstats
-        - ts_alpha / ts_alpha_t / ts_beta / ts_beta_t
-        - grs_stat / grs_pval
-        - alpha_test_result
-        - gmm_result (if run_gmm=True)
-    """
     e = Evaluator(factor=factor, price=price)
 
     # Step 1: IC and direction
     e.get_info_coef(horizon=horizon, method=ic_method)
     ic = e.ic
-    ic_tstat = e.ic.mean() / (e.ic.std() / np.sqrt(e.ic.shape[0]))
+    ic_mean = e.ic.mean()
+    ic_tstat = ic_mean / (e.ic.std() / np.sqrt(e.ic.shape[0]))
 
     # Step 2: Grouped portfolios and HL
     e.get_group_returns(
@@ -97,16 +49,11 @@ def run_factor_pipeline(
     )
     factor_return = e.sorted_factor_return
     group_returns = pd.concat(
-        [gr.groupby(level=0).mean() for gr in e.group_returns.values()],
+        [gr.groupby(level=0).mean() for gr in e.group_returns.values()] + [factor_return],
         axis=1,
     )
-    group_value = pd.concat(
-        [
-            1 + group_returns.shift(1 + horizon).fillna(0),
-            1 + factor_return.shift(1 + horizon).fillna(0),
-        ],
-        axis=1,
-    ).cumprod()
+    group_value = (1 + group_returns.shift(1 + horizon).fillna(0)).cumprod()
+    group_eval = group_value.apply(quool.Evaluator.evaluate)
 
     # Step 3: Rolling TS exposure vs HL
     e.get_factor_exposure(
@@ -150,10 +97,12 @@ def run_factor_pipeline(
 
     return {
         "ic": ic,
+        "ic_mean": ic_mean,
         "ic_tstat": ic_tstat,
         "factor_return": factor_return,
         "group_returns": group_returns,
         "group_value": group_value,
+        "group_eval": group_eval,
         "factor_exposure_mean": factor_exposure_mean,
         "factor_exposure_mean_t": factor_exposure_mean_t,
         "factor_premia": factor_premia,
@@ -174,16 +123,17 @@ if __name__ == "__main__":
 
     dotenv.load_dotenv()
 
-    output_path = "out/test.xlsx"
-    factor_name = "naive_market_size"
-    n_groups = 3
-    bucketing_mode = "independent"
+    begin = "2015-01-01"
+    end = "2025-06-30"
+    output_path = "out/log_market_size_h1_n10.xlsx"
+    n_groups = 10
+    bucketing_mode = "single"
     ts_n_jobs = -1
 
-    dps = factool.DuckParquetSource(f"data/{factor_name}")
+    dps = factool.DuckParquetSource(f"data/barra_sizes")
+    df = dps.get_factor("log_market_size", begin=begin, end=end)
     source = factool.DuckParquetSource(os.getenv("QUOTESDAY_PATH"))
-    df = dps.get_factor("log_market_size", begin="2025-01-01", end="2025-06-30")
-    price = source.get_factor("close_post", begin="2025-01-01", end="2025-06-30")
+    price = source.get_factor("close_post", begin=begin, end=end)
 
     results = run_factor_pipeline(
         factor=[df],
@@ -195,14 +145,14 @@ if __name__ == "__main__":
 
     with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
         results["ic"].reset_index().to_excel(writer, index=False, sheet_name="IC")
-        results["factor_return"].reset_index().to_excel(
-            writer, index=False, sheet_name="Factor Return"
-        )
         results["group_returns"].reset_index().to_excel(
             writer, index=False, sheet_name="Group Return"
         )
         results["group_value"].reset_index().to_excel(
             writer, index=False, sheet_name="Group Value"
+        )
+        results["group_eval"].reset_index().to_excel(
+            writer, index=False, sheet_name="Group Eval"
         )
 
         pd.concat(
@@ -228,6 +178,7 @@ if __name__ == "__main__":
 
         pd.concat(
             [
+                results["ic_mean"].add_suffix("-ic-mean"),
                 results["ic_tstat"].add_suffix("-ic-t"),
                 pd.Series(
                     {
