@@ -1,9 +1,10 @@
 import numpy as np
 import pandas as pd
-from factool import Evaluator
-from typing import Dict, Optional
+from pathlib import Path
+from typing import Dict, Optional, List, Union
 
 import quool
+from factool import Evaluator
 
 
 def run_factor_pipeline(
@@ -49,7 +50,8 @@ def run_factor_pipeline(
     )
     factor_return = e.sorted_factor_return
     group_returns = pd.concat(
-        [gr.groupby(level=0).mean() for gr in e.group_returns.values()] + [factor_return],
+        [gr.groupby(level=0).mean() for gr in e.group_returns.values()]
+        + [factor_return],
         axis=1,
     )
     group_value = (1 + group_returns.shift(1 + horizon).fillna(0)).cumprod()
@@ -116,31 +118,44 @@ def run_factor_pipeline(
     }
 
 
-if __name__ == "__main__":
-    import factool
-    import os
-    import dotenv
-
-    dotenv.load_dotenv()
-
-    begin = "2015-01-01"
-    end = "2025-06-30"
-    output_path = "out/log_market_size_h1_n10.xlsx"
-    n_groups = 10
-    bucketing_mode = "single"
-    ts_n_jobs = -1
-
-    dps = factool.DuckParquetSource(f"data/barra_sizes")
-    df = dps.get_factor("log_market_size", begin=begin, end=end)
-    source = factool.DuckParquetSource(os.getenv("QUOTESDAY_PATH"))
-    price = source.get_factor("close_post", begin=begin, end=end)
-
+def save_factor_pipeline(
+    factor: Union[pd.DataFrame, List[pd.DataFrame]],
+    price: pd.DataFrame,
+    output_path: Union[str, Path],
+    feasible: Optional[pd.DataFrame] = None,
+    weight: Optional[pd.DataFrame] = None,
+    n_groups: int = 10,
+    horizon: int = 1,
+    bucketing_mode: str = "conditional",
+    ic_method: str = "spearman",
+    ts_window: int = 252,
+    ts_min_obs: int = 60,
+    ts_intercept: bool = True,
+    ts_n_jobs: int = -1,
+    cs_add_intercept: bool = True,
+    cs_cov_type: str = "white",
+    cs_white_type: str = "HC1",
+    fmb_nw_lag: int = 3,
+    run_gmm: bool = True,
+) -> Dict[str, object]:
     results = run_factor_pipeline(
-        factor=[df],
+        factor=factor,
         price=price,
-        bucketing_mode=bucketing_mode,
+        feasible=feasible,
+        weight=weight,
         n_groups=n_groups,
+        horizon=horizon,
+        bucketing_mode=bucketing_mode,
+        ic_method=ic_method,
+        ts_window=ts_window,
+        ts_min_obs=ts_min_obs,
+        ts_intercept=ts_intercept,
         ts_n_jobs=ts_n_jobs,
+        cs_add_intercept=cs_add_intercept,
+        cs_cov_type=cs_cov_type,
+        cs_white_type=cs_white_type,
+        fmb_nw_lag=fmb_nw_lag,
+        run_gmm=run_gmm,
     )
 
     with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
@@ -198,3 +213,36 @@ if __name__ == "__main__":
         ).to_frame("Stats").reset_index(names=["stat_name"]).to_excel(
             writer, index=False, sheet_name="Stats"
         )
+    return f"Factor evaluation ended\n\n![result]({str(output_path)})"
+
+
+if __name__ == "__main__":
+    import factool
+    import os
+    import dotenv
+
+    import parquool
+
+    dotenv.load_dotenv()
+
+    begin = "2015-01-01"
+    end = "2025-06-30"
+    output_path = "out/log_market_size_h1_n10.xlsx"
+    n_groups = 10
+    bucketing_mode = "single"
+    ts_n_jobs = -1
+
+    dps = factool.DuckParquetSource(f"data/barra_sizes")
+    df = dps.get_factor("log_market_size", begin=begin, end=end)
+    source = factool.DuckParquetSource(os.getenv("QUOTESDAY_PATH"))
+    price = source.get_factor("close_post", begin=begin, end=end)
+
+    notifier = parquool.notify_task()
+    notifier(save_factor_pipeline)(
+        factor=[df],
+        price=price,
+        output_path=output_path,
+        n_groups=n_groups,
+        bucketing_mode=bucketing_mode,
+        ts_n_jobs=ts_n_jobs,
+    )
