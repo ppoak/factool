@@ -169,7 +169,7 @@ class DuckParquetSource:
 
         Examples:
             >>> source.get_all_factors()
-            column_name  logical_type  ...
+            column_name  column_type  ...
             0       close  DOUBLE        ...
             1        beta  DOUBLE        ...
         """
@@ -181,8 +181,9 @@ class DuckParquetSource:
     def get_factor(
         self,
         name: str,
-        begin: pd.Timestamp | str = None,
-        end: pd.Timestamp | str = None,
+        where: str = None,
+        begin: Union[pd.Timestamp, str] = None,
+        end: Union[pd.Timestamp, str] = None,
     ) -> pd.DataFrame:
         """
         Load a factor column and pivot it into a time-by-code matrix for a date range.
@@ -194,6 +195,7 @@ class DuckParquetSource:
 
         Args:
             name (str): Name of the factor column to retrieve.
+            where (str): The sql condition filter for filtering certain range
             begin (Union[pandas.Timestamp, str, None]): Inclusive lower bound for the time range.
                 Defaults to "2000-01-01" if None.
             end (Union[pandas.Timestamp, str, None]): Inclusive upper bound for the time range.
@@ -222,7 +224,7 @@ class DuckParquetSource:
             index=self.time_col,
             columns=self.code_col,
             values=name,
-            where=f"{self.time_col} >= '{begin}' AND {self.time_col} <= '{end}'",
+            where=f"{self.time_col} >= '{begin}' AND {self.time_col} <= '{end}'" + (f"AND {where}" if where else ""),
             order_by=self.time_col,
         ).set_index(self.time_col)
         data.attrs["name"] = name
