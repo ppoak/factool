@@ -8,13 +8,7 @@
 
 **计算步骤**：
 
-$$
-\text{log\_market\_size} = \log(\text{circulation}_a \times \text{close})
-$$
-
-**相关数据：** quotes_day表中的circulation_a列、close列
-
-**说明：** 对数市值因子用于衡量传统市值规模；
+提取计算时点t的quotes_day表中的close矩阵、st矩阵、suspended矩阵的数据。使用 `~st & ~suspended`作为掩码，筛选掉停牌和ST的股票后，计算流通市值矩阵$M=close \times circulatio\_a$，取对数$log(M)$作为因子，注意M为矩阵，返回因子时候需要转成Series。
 
 ### 非线性市值因子（nonlinear_market_size）
 
@@ -24,19 +18,15 @@ $$
 
 **计算步骤**：
 
-1. 首先计算对数市值： $ x = \log(\text{circulation}_a \times \text{close}) $
-2. 以 $ x^3 $ 为因变量，$ x $ 加常数项为自变量做线性回归：
+1. 提取计算时点t的quotes_day表中的close矩阵、st矩阵、suspended矩阵的数据。使用 `~st & ~suspended`作为掩码，筛选掉停牌和ST的股票后，计算流通市值矩阵$M=close \times circulatio\_a$，取对数$LM =log(M)$。
+2. 以 $ LM^3 $ 为因变量，$LM $ 加常数项为自变量做线性回归：
 
    $$
-   x^3 = \beta_0 + \beta_1 x + \epsilon
+   LM^3 = \beta_0 + \beta_1 LM + \epsilon
    $$
 
 3. 用残差 $ \epsilon $ 作为非线性市值因子：
 
    $$
-   \text{nonlinear\_market\_size} = \epsilon
+   nonlinear\_market\_size = \epsilon
    $$
-
-**数据表：** quotes_day表中的circulation_a列、close列
-
-**说明：** 非线性市值因子捕捉市值效应中的非线性部分，可揭示超越线性规模效应的定价信息。
