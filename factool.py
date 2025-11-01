@@ -653,9 +653,9 @@ class Evaluator:
         self._price = self._price.reindex(columns=ccol)
         for nm, f in self._factors.items():
             self._logger.info(f"Added {cidx.difference(f.index).size} rows to {nm} matrix")
-            f = f.reindex(index=cidx)
+            self._factors[nm] = f.reindex(index=cidx)
             self._logger.info(f"Added {ccol.difference(f.columns).size} cols to {nm} matrix")
-            f = f.reindex(columns=ccol)
+            self._factors[nm] = f.reindex(columns=ccol)
 
     @staticmethod
     def _default_feasible_like(df: pd.DataFrame) -> pd.DataFrame:
