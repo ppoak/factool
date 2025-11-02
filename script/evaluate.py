@@ -227,13 +227,13 @@ if __name__ == "__main__":
 
     begin = "2015-01-01"
     end = "2025-06-30"
-    output_path = "out/log_market_size_h1_n10.xlsx"
+    output_path = "out/barra_beta.xlsx"
     n_groups = 10
     bucketing_mode = "single"
     ts_n_jobs = -1
 
-    dps = factool.DuckParquetSource(f"data/barra_sizes")
-    df = dps.get_factor("log_market_size", begin=begin, end=end)
+    dps = factool.DuckParquetSource(f"data/barra_beta")
+    df = dps.get_factor("barra_beta", begin=begin, end=end)
     source = factool.DuckParquetSource(os.getenv("QUOTESDAY_PATH"))
     price = source.get_factor("close_post", begin=begin, end=end)
 
