@@ -8,6 +8,7 @@
 - 代码需包含所有必要的import、函数定义和类型标记。
 - 不要输出markdown格式，只输出纯代码（不要```python标记，也不要文字说明）。
 - 只生成一个calc_因子名函数，不论输入是多少个因子，都只生成一个函数。
+- 生成的每一个脚本最后，需要添加 `if __name__ == "__main__"`并添加对该因子生成函数在某个交易日的调用，进行简单测试。
 
 ## Illustrations
 
@@ -29,7 +30,7 @@
   - 你的数据都需要使用DuckParquetSource进行读取。
   - DuckParquetSource本质是以DuckDB作为操作引擎，Parquet文件为底层存储的一组Paruqet文件目录。分区列为date，所以在设定初始化DuckParquetSource时，选用time_col="date"为最佳性能实践。
   - 尽管分区列为date，但所有数据源都另外提供列time，对于日线数据，时间点为00:00:00；对于分钟线，时间点为每个交易分钟。但date均为交易日的零点的时间戳。
-  - 所有数据源通过get_factor得到的返回结果均为一个以pd.DatetimeIndex索引的宽表，列为股票代码，值为get_factor参数的因子值。get_factor函数使用示例为 `dps.get_factor("market_size", begin="2020-01-01", end="2020-01-31")`，这将以宽表形式获取2020-01-01到2020-01-31一个月的市值因子数据。另外，可以通过`where`参数为数据添加进一步的过滤，例如获取特定指数数据：`dps.get_factor("close_post", where="code = '000985.CSI'", begin="2025-01-01", end="2025-06-30")`。
+  - 所有数据源通过get_factor得到的返回结果均为一个以pd.DatetimeIndex索引的宽表，列为股票代码，值为get_factor参数的因子值。get_factor函数使用示例为 `dps.get_factor("market_size", begin="2020-01-01", end="2020-01-31")`，这将以宽表形式获取2020-01-01到2020-01-31一个月的市值因子数据。另外，可以通过 `where`参数为数据添加进一步的过滤，例如获取特定指数数据：`dps.get_factor("close_post", where="code = '000985.CSI'", begin="2025-01-01", end="2025-06-30")`。
   - 所有数据源均可通过source.get_times(begin, end)获取到begin和end参数之间所有有数据的交易日因子信息。
   - 所有数据源均可通过source.get_time(time, n)获取到time时间点前移（n>0）或后移（n<0）n天的有数据的因子日。
 
@@ -56,4 +57,7 @@ def calc_market_size(time: Union[str, pd.Timestamp]) -> pd.DataFrame:
     return pd.concat(
         [log, nonlinear], axis=1, keys=["log_market_size", "nonlinear_market_size"]
     )
+
+if __name__ == "__main__":
+    print(calc_market_size("2025-01-02"))
 ```
