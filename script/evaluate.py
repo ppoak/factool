@@ -15,6 +15,7 @@ def run_factor_pipeline(
     # Grouping/HL params
     n_groups: int = 10,
     horizon: int = 1,
+    skip_horizon: bool = True,
     bucketing_mode: str = "conditional",
     # IC params
     ic_method: str = "spearman",
@@ -35,7 +36,7 @@ def run_factor_pipeline(
     e = Evaluator(factor=factor, price=price)
 
     # Step 1: IC and direction
-    e.get_info_coef(horizon=horizon, method=ic_method)
+    e.get_info_coef(horizon=horizon, skip_horizon=skip_horizon, method=ic_method)
     ic = e.ic
     ic_mean = e.ic.mean()
     ic_tstat = ic_mean / (e.ic.std() / np.sqrt(e.ic.shape[0]))
@@ -44,6 +45,7 @@ def run_factor_pipeline(
     e.get_group_returns(
         n=n_groups,
         horizon=horizon,
+        skip_horizon=skip_horizon,
         mode=bucketing_mode,
         feasible=feasible,
         weight=weight,
@@ -54,7 +56,7 @@ def run_factor_pipeline(
         + [factor_return],
         axis=1,
     )
-    group_value = (1 + group_returns.shift(1 + horizon).fillna(0)).cumprod()
+    group_value = (1 + group_returns.shift(1 + horizon).dropna(how='all', axis=0).fillna(0)).cumprod()
     group_eval = group_value.apply(quool.Evaluator.evaluate)
 
     # Step 3: Rolling TS exposure vs HL
@@ -126,6 +128,7 @@ def save_factor_pipeline(
     weight: Optional[pd.DataFrame] = None,
     n_groups: int = 10,
     horizon: int = 1,
+    skip_horizon: bool = True,
     bucketing_mode: str = "conditional",
     ic_method: str = "spearman",
     ts_window: int = 252,
@@ -145,6 +148,7 @@ def save_factor_pipeline(
         weight=weight,
         n_groups=n_groups,
         horizon=horizon,
+        skip_horizon = skip_horizon,
         bucketing_mode=bucketing_mode,
         ic_method=ic_method,
         ts_window=ts_window,
@@ -227,20 +231,24 @@ if __name__ == "__main__":
 
     begin = "2015-01-01"
     end = "2025-06-30"
-    output_path = "out/barra_beta.xlsx"
+    horizon = 21
+    skip_horizon = True
+    output_path = "out/barra_momentum.xlsx"
     n_groups = 10
     bucketing_mode = "single"
     ts_n_jobs = -1
 
-    dps = factool.DuckParquetSource(f"data/barra_beta")
-    df = dps.get_factor("barra_beta", begin=begin, end=end)
+    dps = factool.DuckParquetSource(f"data/barra_momentum")
+    df = dps.get_factor("barra_momentum", begin=begin, end=end)
     source = factool.DuckParquetSource(os.getenv("QUOTESDAY_PATH"))
     price = source.get_factor("close_post", begin=begin, end=end)
 
     notifier = parquool.notify_task()
-    notifier(save_factor_pipeline)(
+    (save_factor_pipeline)(
         factor=[df],
         price=price,
+        horizon=horizon,
+        skip_horizon=skip_horizon,
         output_path=output_path,
         n_groups=n_groups,
         bucketing_mode=bucketing_mode,

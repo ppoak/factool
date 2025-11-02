@@ -171,9 +171,18 @@ class Evaluator:
         """Create a float DataFrame of the same shape as df, filled with ones."""
         return pd.DataFrame(1.0, index=df.index, columns=df.columns)
 
-    def _future_return(self, horizon: int) -> pd.DataFrame:
+    def _future_return(self, horizon: int, skip: bool = True) -> pd.DataFrame:
         """Compute future returns using an anchored shift to avoid look-ahead bias."""
-        return self._shifted.shift(-horizon) / self._shifted - 1
+        if not skip:
+            return self._shifted.shift(-horizon) / self._shifted - 1
+        nonreturn_days = pd.DataFrame(
+            np.zeros_like(self._price),
+            index=self._price.index,
+            columns=self._price.columns,
+            dtype="bool",
+        )
+        nonreturn_days.iloc[::horizon] = True
+        return (self._shifted.shift(-horizon) / self._shifted - 1).where(nonreturn_days)
 
     @staticmethod
     def _qcut_groups(series: pd.Series, q: int) -> pd.Series:
@@ -378,6 +387,7 @@ class Evaluator:
         self,
         n: int = 10,
         horizon: int = 1,
+        skip_horizon: bool = True,
         mode: Literal["single", "conditional", "independent"] = "single",
         feasible: Optional[pd.DataFrame] = None,
         weight: Optional[pd.DataFrame] = None,
@@ -403,6 +413,7 @@ class Evaluator:
         Args:
             n: Number of quantile groups.
             horizon: Return horizon (in periods).
+            skip_horizon: Whtere to skip the horizon in the weights DataFrame.
             mode: Bucketing mode: 'single', 'conditional' or 'independent'.
             feasible: Optional boolean DataFrame for asset eligibility.
             weight: Optional DataFrame of within-group weights.
@@ -424,7 +435,7 @@ class Evaluator:
         self._logger.debug(
             f"Apply {'future' if horizon > 0 else 'past'} {abs(horizon)} day return for group return"
         )
-        asset_returns = self._future_return(horizon)
+        asset_returns = self._future_return(horizon, skip=skip_horizon)
 
         feasible = (
             feasible.reindex_like(asset_returns).fillna(False)
@@ -616,7 +627,7 @@ class Evaluator:
 
             self.group_returns[name] = pd.concat(
                 g_rets, keys=dates, axis=int(isinstance(g_rets[0], pd.Series))
-            )
+            ).dropna(how="all", axis=1)
             self.group_returns[name] = (
                 self.group_returns[name].T
                 if isinstance(g_rets[0], pd.Series)
@@ -642,6 +653,7 @@ class Evaluator:
     def time_series_regression(
         self,
         horizon: Optional[int] = 1,
+        skip_horizon: bool = True,
         rolling: bool = False,
         window: int = 252,
         min_obs: int = 60,
@@ -660,6 +672,7 @@ class Evaluator:
 
         Args:
             horizon: Return horizon for dependent variable when asset_returns is None.
+            skip_horizon: Whtere to skip the horizon in the weights DataFrame.
             other_factor_returns: Optional DataFrame of factor returns (dates x K). If None,
                 uses the constructed HL factor (sorted_factor_return) if available.
             rolling: Whether to perform rolling regression (single factor only).
@@ -686,7 +699,7 @@ class Evaluator:
         self._logger.debug(
             f"Apply {'future' if horizon > 0 else 'past'} {abs(horizon)} day return for time series regression"
         )
-        asset_returns = self._future_return(horizon)
+        asset_returns = self._future_return(horizon, skip=skip_horizon)
 
         # Prepare factor returns
         if not (
@@ -790,6 +803,7 @@ class Evaluator:
     def get_factor_exposure(
         self,
         horizon: int = 1,
+        skip_horizon: bool = True,
         feasible: Optional[pd.DataFrame] = None,
         window: int = 252,
         min_obs: int = 60,
@@ -804,6 +818,7 @@ class Evaluator:
 
         Args:
             horizon: Return horizon for the dependent variable.
+            skip_horizon: Whtere to skip the horizon in the weights DataFrame.
             feasible: Optional eligibility DataFrame for masking asset returns.
             window: Rolling window size for time-series regression.
             min_obs: Minimum valid observations in a window to compute regression.
@@ -829,6 +844,7 @@ class Evaluator:
         # Delegate to the unified time_series_regression (rolling single-factor)
         self.time_series_regression(
             horizon=horizon,
+            skip_horizon=skip_horizon,
             rolling=True,
             window=window,
             min_obs=min_obs,
@@ -843,11 +859,14 @@ class Evaluator:
         )
         return self
 
-    def get_info_coef(self, horizon: int = 1, method: str = "spearman"):
+    def get_info_coef(
+        self, horizon: int = 1, skip_horizon: bool = True, method: str = "spearman"
+    ):
         """Evaluate Information Coefficient (IC) between factor exposures and future returns.
 
         Args:
             horizon: Return horizon in periods.
+            skip_horizon: Whtere to skip the horizon in the weights DataFrame.
             method: Correlation method ('pearson', 'spearman', 'kendall').
 
         Returns:
@@ -858,9 +877,9 @@ class Evaluator:
         self._logger.debug(
             f"Apply {'future' if horizon > 0 else 'past'} {abs(horizon)} day return for information coefficiency"
         )
-        asset_returns = self._future_return(horizon)
+        asset_returns = self._future_return(horizon, skip=skip_horizon)
         self.ic = [
-            factor.corrwith(asset_returns, axis=1, method=method)
+            factor.corrwith(asset_returns, axis=1, method=method).dropna(axis=0, how='all')
             for factor in self._factors.values()
         ]
         self.ic = pd.concat(self.ic, keys=self._names, axis=1)
@@ -875,6 +894,7 @@ class Evaluator:
     def cross_sectional_regression(
         self,
         horizon: int = 1,
+        skip_horizon: bool = True,
         feasible: Optional[pd.DataFrame] = None,
         weight: Optional[pd.DataFrame] = None,
         add_intercept: bool = True,
@@ -888,6 +908,7 @@ class Evaluator:
 
         Args:
             horizon: Return horizon in periods.
+            skip_horizon: Whtere to skip the horizon in the weights DataFrame.
             feasible: Optional boolean eligibility mask DataFrame.
             weight: Optional cross-sectional weights for assets at each date.
             add_intercept: Whether to include intercept in the cross-sectional regression.
@@ -903,23 +924,23 @@ class Evaluator:
         self._logger.debug(
             f"Apply {'future' if horizon > 0 else 'past'} {abs(horizon)} day return for cross sectional regression"
         )
-        future = self._future_return(horizon)
-        idx, cols = future.index, future.columns
+        asset_returns = self._future_return(horizon, skip=skip_horizon)
+        idx, cols = asset_returns.index, asset_returns.columns
 
         feasible = (
             feasible.reindex(index=idx, columns=cols).fillna(False)
             if feasible is not None
-            else self._default_feasible_like(future)
+            else self._default_feasible_like(asset_returns)
         )
         if weight is not None:
             weight = weight.reindex(index=idx, columns=cols).fillna(0.0)
 
-        dates = idx
+        dates = asset_returns.dropna(axis=0, how='all').index
         default = np.full(len(self._names) + int(add_intercept), np.nan)
         betas, tstats, r2vals = [], [], []
 
         for dt in dates:
-            y = future.loc[dt].values
+            y = asset_returns.loc[dt].values
             Xi = np.column_stack([fct.loc[dt].values for fct in self._factors.values()])
 
             valid = (
@@ -1028,12 +1049,14 @@ class Evaluator:
     def grs_test(
         self,
         horizon: int = 1,
+        skip_horizon: bool = True,
         add_intercept: bool = True,
     ) -> "Evaluator":
         """Compute the Gibbons-Ross-Shanken (GRS) test for joint alpha = 0.
 
         Args:
             horizon: Return horizon in periods.
+            skip_horizon: Whtere to skip the horizon in the weights DataFrame.
             add_intercept: Whether time-series regressions include intercepts (required for GRS).
 
         Returns:
@@ -1042,7 +1065,7 @@ class Evaluator:
         self._logger.debug(
             f"Apply {'future' if horizon > 0 else 'past'} {abs(horizon)} day return for Gibbons-Ross-Shanken test"
         )
-        asset_returns = self._future_return(horizon)
+        asset_returns = self._future_return(horizon, skip=skip_horizon)
         if not (
             hasattr(self, "sorted_factor_return")
             and self.sorted_factor_return is not None
@@ -1105,6 +1128,7 @@ class Evaluator:
     def gmm_linear_pricing(
         self,
         horizon: int = 1,
+        skip_horizon: bool = True,
         two_step: bool = True,
     ) -> Dict[str, Union[np.ndarray, float]]:
         """Estimate linear factor risk premia via GMM under SDF m_t = 1 - lambda' F_t.
@@ -1115,6 +1139,7 @@ class Evaluator:
 
         Args:
             horizon: Return horizon in periods.
+            skip_horizon: Whtere to skip the horizon in the weights DataFrame.
             two_step: Whether to run two-step GMM (second step uses an estimated optimal weighting).
 
         Returns:
@@ -1127,7 +1152,7 @@ class Evaluator:
         self._logger.debug(
             f"Apply {'future' if horizon > 0 else 'past'} {abs(horizon)} day return for GMM pricing"
         )
-        asset_returns = self._future_return(horizon)
+        asset_returns = self._future_return(horizon, skip=skip_horizon)
         if not (
             hasattr(self, "sorted_factor_return")
             and self.sorted_factor_return is not None
@@ -1136,7 +1161,14 @@ class Evaluator:
                 "No factor return founded, run `get_group_return` first."
             )
             return self
-        factor_returns = self.sorted_factor_return
+        factor_returns = self.sorted_factor_return.copy()
+        # Align indices
+        idx = asset_returns.index.intersection(factor_returns.index)
+        if idx.empty:
+            self._logger.error("No available date found.")
+            return self
+        asset_returns = asset_returns.loc[idx]
+        factor_returns = factor_returns.loc[idx]
         R = asset_returns.values  # T x N
         F = factor_returns.values  # T x K
         Tn, N = R.shape
@@ -1298,6 +1330,7 @@ class Evaluator:
         self,
         weights: pd.DataFrame,
         horizon: int = 1,
+        skip_horizon: bool = True,
         feasible: Optional[pd.DataFrame] = None,
         other_factors: Optional[Dict[str, pd.DataFrame]] = None,
         factor_returns: Optional[pd.DataFrame] = None,
@@ -1337,6 +1370,7 @@ class Evaluator:
         Args:
             weights: Portfolio weights (dates x assets).
             horizon: Return horizon (in periods) for realized portfolio returns and factor contributions.
+            skip_horizon: Whtere to skip the horizon in the weights DataFrame.
             feasible: Optional eligibility mask (dates x assets). Infeasible assets receive zero weight.
             other_factors: Optional dict of name -> exposure DataFrame for multi-factor exposure attribution.
                         Exposures must be aligned by dates/assets to the primary factor and price universe.
@@ -1366,7 +1400,7 @@ class Evaluator:
             - If factor returns are not supplied and cannot be built, contributions will be NaN.
         """
         # 1) Prepare returns and align
-        future = self._future_return(horizon)  # asset returns from t to t+h
+        future = self._future_return(horizon, skip=skip_horizon)  # asset returns from t to t+h
         # Align weights to price/returns universe
         weights = weights.reindex(index=future.index, columns=future.columns).fillna(
             0.0
