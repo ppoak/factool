@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "factool"
-version = "0.3.2"
+version = "0.3.0"
 description = "Factor tool is a quant framework for factor research."
 readme = { file = "README.md", content-type = "text/markdown" }
 authors = [
@@ -33,7 +33,7 @@ dependencies = [
 ]
 
 [tool.setuptools]
-py-modules = ["factool"]
+packages = ["factool"]
 
 [project.urls]
 Homepage = "https://github.com/ppoak/factool"
