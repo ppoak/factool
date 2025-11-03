@@ -30,6 +30,12 @@ def get_duckparquet_schema(table_name: str) -> str:
 
 
 def create(session_id: str = None, session_db: str = "factool_agent.db"):
+    """Create an agent based instance with assigned seesion_id and session_db
+
+    Args:
+        session_id (str): session id assigned.
+        session_db (str): session db path assigned.
+    """
 
     return parquool.Agent(
         tools=[get_all_tables, get_duckparquet_schema],

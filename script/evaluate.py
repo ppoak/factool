@@ -33,6 +33,86 @@ def run_factor_pipeline(
     # GMM pricing params
     run_gmm: bool = True,
 ) -> Dict[str, object]:
+    """Run a full factor evaluation pipeline and return computed results.
+
+    This function orchestrates a standard empirical asset-pricing workflow using a single
+    factor (or a list of factors) and price data via factool.Evaluator. It computes:
+    - Information coefficients (IC) and their mean/t-stats
+    - Grouped (bucketed) portfolio returns and cumulative values, plus evaluation metrics
+    - Rolling time-series exposure of the factor to the grouped long-short (HL) portfolio
+    - Cross-sectional regressions of returns on the factor
+    - Fama–MacBeth estimates and t-stats
+    - GRS test statistics for joint alpha = 0
+    - Optional GMM linear pricing test
+
+    Args:
+        factor (pd.DataFrame or List[pd.DataFrame]): Factor values. Typically a DataFrame
+            (or a list of DataFrames) indexed by a MultiIndex with date at level 0 and
+            asset identifiers (e.g., codes) at level 1. Values should be numeric and aligned
+            with the price DataFrame.
+        price (pd.DataFrame): Price or return data used by the evaluator. Must be aligned
+            with the factor on index and identifiers as required by factool.Evaluator.
+        feasible (Optional[pd.DataFrame]): Optional boolean mask indicating tradable/feasible
+            assets by date and code. Aligns with factor/price indices.
+        weight (Optional[pd.DataFrame]): Optional cross-sectional weights by date and code
+            for portfolio construction and regressions.
+        n_groups (int): Number of buckets used to sort assets by the factor for grouped
+            portfolio analysis. Default is 10.
+        horizon (int): Return horizon (in periods) for IC and performance calculations.
+            Default is 1.
+        skip_horizon (bool): Whether to skip the immediate next horizon when forming future
+            returns (e.g., to avoid look-ahead overlap). Default is True.
+        bucketing_mode (str): Bucketing mode for grouped portfolios. Common options include
+            "conditional" and "single". Default is "conditional".
+        ic_method (str): Method for information coefficient (e.g., "spearman"). Default is
+            "spearman".
+        ts_window (int): Rolling window length for time-series exposure estimation. Default
+            is 252.
+        ts_min_obs (int): Minimum number of observations required within the rolling window
+            to fit the time-series regression. Default is 60.
+        ts_intercept (bool): Whether to include an intercept in the time-series regression.
+            Default is True.
+        ts_n_jobs (int): Number of parallel jobs for time-series exposure computation.
+            Use -1 to utilize all available cores. Default is -1.
+        cs_add_intercept (bool): Whether to add an intercept in cross-sectional regressions.
+            Default is True.
+        cs_cov_type (str): Covariance type for cross-sectional regression (e.g., "white").
+            Default is "white".
+        cs_white_type (str): White heteroskedasticity-consistent estimator type (e.g., "HC1").
+            Default is "HC1".
+        fmb_nw_lag (int): Newey–West lag length for Fama–MacBeth t-stat computation.
+            Default is 3.
+        run_gmm (bool): Whether to run the GMM linear pricing test. Default is True.
+
+    Returns:
+        Dict[str, object]: A dictionary containing:
+            - "ic": Information coefficients by date (pd.Series or pd.DataFrame).
+            - "ic_mean": Mean IC by factor/column (pd.Series).
+            - "ic_tstat": IC t-statistics (pd.Series).
+            - "factor_return": Sorted HL factor portfolio returns by date (pd.Series).
+            - "group_returns": Grouped portfolio returns (pd.DataFrame), including HL.
+            - "group_value": Cumulative value of grouped portfolios (pd.DataFrame).
+            - "group_eval": Evaluation metrics for each grouped portfolio column (pd.DataFrame).
+            - "factor_exposure_mean": Mean time-series exposure by date (pd.DataFrame).
+            - "factor_exposure_mean_t": Mean t-stats for exposures by date (pd.DataFrame).
+            - "factor_premia": Cross-sectional factor premia by date (pd.Series).
+            - "factor_premia_t": Cross-sectional t-stats by date (pd.Series).
+            - "r2": Cross-sectional regression R-squared by date (pd.Series).
+            - "fmb_premia": Fama–MacBeth premia (pd.Series).
+            - "fmb_premia_t": Fama–MacBeth t-stats (pd.Series).
+            - "grs_stat": GRS test statistic (float).
+            - "grs_pval": GRS test p-value (float).
+            - "gmm_result": Dict with GMM results (e.g., {"J": float, "pval": float}) or None.
+
+    Raises:
+        ValueError: If input indices are misaligned or parameters are invalid for the evaluator.
+        RuntimeError: If underlying evaluator methods fail.
+        Exception: Any error propagated from factool.Evaluator, quool, or NumPy/pandas.
+
+    Notes:
+        - The code groups by level=0, assuming the first index level is the date.
+        - group_eval is computed via quool.Evaluator.evaluate applied column-wise to group_value.
+    """
     e = Evaluator(factor=factor, price=price)
 
     # Step 1: IC and direction
@@ -141,6 +221,64 @@ def save_factor_pipeline(
     fmb_nw_lag: int = 3,
     run_gmm: bool = True,
 ) -> Dict[str, object]:
+    """Run the factor pipeline and save results to an Excel file with multiple sheets.
+
+    This function executes run_factor_pipeline and writes the outputs to an Excel workbook
+    with the following sheets:
+    - "IC": Daily information coefficients.
+    - "Group Return": Average grouped portfolio returns by date (including the HL column).
+    - "Group Value": Cumulative values of grouped portfolios.
+    - "Group Eval": Evaluation metrics for grouped portfolios.
+    - "Time Series Regression": Mean time-series exposures and t-stats by code.
+    - "Cross Sectional Regression": Daily factor premia, t-stats, and R-squared.
+    - "Stats": Summary statistics including IC means/t-stats, GRS test, Fama–MacBeth
+    premia/t-stats, and GMM test results (J and p-value).
+
+    Args:
+        factor (Union[pd.DataFrame, List[pd.DataFrame]]): Factor values as a DataFrame or a
+            list of DataFrames. Typically indexed by date (level 0) and asset code (level 1).
+            Must be compatible with factool.Evaluator.
+        price (pd.DataFrame): Price/return data aligned with the factor inputs.
+        output_path (Union[str, Path]): Path to the output Excel file (.xlsx). Parent
+            directories should exist or be creatable.
+        feasible (Optional[pd.DataFrame]): Optional feasibility mask (boolean) aligned to
+            factor/price indices.
+        weight (Optional[pd.DataFrame]): Optional cross-sectional weights aligned to indices.
+        n_groups (int): Number of buckets for grouped portfolios. Default is 10.
+        horizon (int): Return horizon in periods. Default is 1.
+        skip_horizon (bool): Whether to skip the next horizon window in future returns.
+            Default is True.
+        bucketing_mode (str): Bucketing mode ("conditional", "single", etc.). Default is
+            "conditional".
+        ic_method (str): IC computation method (e.g., "spearman"). Default is "spearman".
+        ts_window (int): Rolling window for time-series exposures. Default is 252.
+        ts_min_obs (int): Minimum observations for rolling regression. Default is 60.
+        ts_intercept (bool): Include intercept in time-series regression. Default is True.
+        ts_n_jobs (int): Parallel jobs for exposure computation (-1 for all cores). Default
+            is -1.
+        cs_add_intercept (bool): Include intercept in cross-sectional regression. Default is
+            True.
+        cs_cov_type (str): Covariance type for cross-sectional regression. Default is "white".
+        cs_white_type (str): White estimator type (e.g., "HC1"). Default is "HC1".
+        fmb_nw_lag (int): Newey–West lag length for FMB t-stats. Default is 3.
+        run_gmm (bool): Whether to run the GMM pricing test and include its results in "Stats".
+            Default is True.
+
+    Returns:
+        str: A status message including a Markdown-style link to the saved Excel file.
+
+    Raises:
+        OSError: If writing the Excel file fails (e.g., path not writable).
+        ValueError: If pipeline inputs are invalid or misaligned.
+        KeyError or TypeError: If "Stats" sheet assembly fails due to missing GMM results
+            (e.g., run_gmm=False yields gmm_result=None).
+
+    Notes:
+        - The Excel writer uses the openpyxl engine; ensure the .xlsx extension is used.
+        - When run_gmm=False, the current implementation will attempt to access gmm_result
+        and may raise an error; set run_gmm=True to include GMM statistics in "Stats".
+        - Index names are set when resetting indices to produce clean tabular outputs.
+    """
     results = run_factor_pipeline(
         factor=factor,
         price=price,
