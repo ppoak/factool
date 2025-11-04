@@ -136,7 +136,9 @@ def run_factor_pipeline(
         + [factor_return],
         axis=1,
     )
-    group_value = (1 + group_returns.shift(1 + horizon).dropna(how='all', axis=0).fillna(0)).cumprod()
+    group_value = (
+        1 + group_returns.shift(1 + horizon).dropna(how="all", axis=0).fillna(0)
+    ).cumprod()
     group_eval = group_value.apply(quool.Evaluator.evaluate)
 
     # Step 3: Rolling TS exposure vs HL
@@ -286,7 +288,7 @@ def save_factor_pipeline(
         weight=weight,
         n_groups=n_groups,
         horizon=horizon,
-        skip_horizon = skip_horizon,
+        skip_horizon=skip_horizon,
         bucketing_mode=bucketing_mode,
         ic_method=ic_method,
         ts_window=ts_window,
@@ -371,18 +373,18 @@ if __name__ == "__main__":
     end = "2025-06-30"
     horizon = 21
     skip_horizon = True
-    output_path = "out/barra_momentum.xlsx"
+    output_path = "out/barra_beta.xlsx"
     n_groups = 10
     bucketing_mode = "single"
     ts_n_jobs = -1
 
-    dps = factool.DuckParquetSource(f"data/barra_momentum")
-    df = dps.get_factor("barra_momentum", begin=begin, end=end)
+    dps = factool.DuckParquetSource(f"data/barra_beta")
+    df = dps.get_factor("barra_beta", begin=begin, end=end)
     source = factool.DuckParquetSource(os.getenv("QUOTESDAY_PATH"))
     price = source.get_factor("close_post", begin=begin, end=end)
 
     notifier = parquool.notify_task()
-    (save_factor_pipeline)(
+    notifier(save_factor_pipeline)(
         factor=[df],
         price=price,
         horizon=horizon,

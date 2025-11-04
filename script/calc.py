@@ -19,7 +19,7 @@ def calc(
     return_df: bool = True,
 ):
     """Calculate factor data
-    
+
     Args:
         factor_def_path (str): factor definition file path,
         begin (str): calculation begin time,
@@ -29,7 +29,7 @@ def calc(
         chunck (int): save every `chunck` timepoints calculated,
         return_df (bool): whether return dataframe after calculation,
             if data is extremly large, we don't recommend return_df
-    
+
     Return:
         (None or DataFrame) the calculation results (`return_df = True`) and saved factor data (`save_path is not None`)
     """
@@ -83,22 +83,23 @@ def calc(
         return pd.concat(chunks, axis=0).sort_index()
     return None
 
+
 if __name__ == "__main__":
     load_dotenv()
     from parquool import notify_task
 
-    factor_name = "barra_volatility"
+    factor_name = "barra_sizes"
     factor_file_path = f"generated/{factor_name}.py"
     notifier = notify_task()
 
     print(
         notifier(calc)(
             factor_file_path,
-            "2017-01-23",
+            "2015-01-01",
             "now",
             n_jobs=-1,
             save_path=Path(os.getenv("FACTOR_DATA_PATH")) / factor_name,
             chunck=21,
-            return_df=True,
+            return_df=False,
         )
     )
