@@ -65,7 +65,7 @@ def generate(doc: str, factor_py_path: str, db: Union[str, Path] = "out/agent.db
 
 
 if __name__ == "__main__":
-    doc = "docs/definitions/barra_factor/barra_momentum.md"
+    doc = "docs/barra_factor/barra_momentum.md"
     factor_py_path = "generated/"
     db = ":memory:"
 
