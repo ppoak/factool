@@ -1,7 +1,9 @@
-import numpy as np
-import pandas as pd
 from pathlib import Path
 from typing import Dict, Optional, List, Union
+
+import numpy as np
+import pandas as pd
+from openpyxl.chart import LineChart, BarChart, Reference
 
 import quool
 from factool import Evaluator
@@ -202,6 +204,36 @@ def run_factor_pipeline(
     }
 
 
+def _add_line_chart(ws, title, anchor="G2"):
+    if ws.max_row < 2 or ws.max_column < 2:
+        return
+    chart = LineChart()
+    chart.title = title
+    data = Reference(
+        ws, min_col=2, min_row=1, max_col=ws.max_column, max_row=ws.max_row
+    )
+    chart.add_data(data, titles_from_data=True)
+    cats = Reference(ws, min_col=1, min_row=2, max_row=ws.max_row)
+    chart.set_categories(cats)
+    chart.x_axis.title = ws.cell(row=1, column=1).value or ""
+    ws.add_chart(chart, anchor)
+
+
+def _add_bar_chart(ws, title, anchor="G2"):
+    if ws.max_row < 2 or ws.max_column < 2:
+        return
+    chart = BarChart()
+    chart.type = "col"
+    chart.title = title
+    data = Reference(
+        ws, min_col=2, min_row=1, max_col=ws.max_column, max_row=ws.max_row
+    )
+    chart.add_data(data, titles_from_data=True)
+    cats = Reference(ws, min_col=1, min_row=2, max_row=ws.max_row)
+    chart.set_categories(cats)
+    ws.add_chart(chart, anchor)
+
+
 def save_factor_pipeline(
     factor: Union[pd.DataFrame, List[pd.DataFrame]],
     price: pd.DataFrame,
@@ -357,6 +389,15 @@ def save_factor_pipeline(
         ).to_frame("Stats").reset_index(names=["stat_name"]).to_excel(
             writer, index=False, sheet_name="Stats"
         )
+
+        # IC (line chart over time)
+        ws = writer.sheets["IC"]
+        _add_bar_chart(ws, title="Information Coefficient")
+
+        # Group Value (line chart of cumulative values)
+        ws = writer.sheets["Group Value"]
+        _add_line_chart(ws, title="Group Portfolio Cumulative Value")
+
     return f"Factor evaluation ended\n\n![result]({str(output_path)})"
 
 
@@ -373,13 +414,13 @@ if __name__ == "__main__":
     end = "2025-06-30"
     horizon = 21
     skip_horizon = True
-    output_path = "out/barra_beta.xlsx"
+    output_path = "out/log_market_size.xlsx"
     n_groups = 10
     bucketing_mode = "single"
     ts_n_jobs = -1
 
-    dps = factool.DuckParquetSource(f"data/barra_beta")
-    df = dps.get_factor("barra_beta", begin=begin, end=end)
+    dps = factool.DuckParquetSource(f"data/barra_sizes")
+    df = dps.get_factor("barra_sizes", begin=begin, end=end)
     source = factool.DuckParquetSource(os.getenv("QUOTESDAY_PATH"))
     price = source.get_factor("close_post", begin=begin, end=end)
 
