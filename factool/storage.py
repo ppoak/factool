@@ -1,5 +1,5 @@
 from functools import partial
-from typing import Union
+from typing import Union, Literal
 
 import pandas as pd
 
@@ -225,6 +225,68 @@ class DuckParquetSource:
             + (f"AND {where}" if where else ""),
             order_by=self.time_col,
         ).set_index(self.time_col)
+        data.attrs["name"] = name
+        return data
+
+    def get_financial(
+        self,
+        name: str,
+        dtype: Literal["ttm", "lyr", "mrq"] = "ttm",
+        begin: Union[pd.Timestamp, str] = None,
+        end: Union[pd.Timestamp, str] = None,
+    ) -> pd.DataFrame:
+        """
+        Load a financial indicator and pivot it into a time-by-code matrix for a date range.
+
+        The result is a wide DataFrame where:
+        - The index is the time column (self.time_col), sorted ascending.
+        - The columns are distinct codes (self.code_col).
+        - The cell values are the financial indicator values for (time, code) pairs.
+
+        Args:
+            name (str): Name of the financial indicator to retrieve.
+            dtype (Literal["ttm", "lyr", "mrq"]): Way of calculating financial indicator.
+                - ttm: trailing twelve months
+                - lyr: last year report
+                - mrq: most recent quarter
+            begin (Union[pandas.Timestamp, str, None]): Inclusive lower bound for the time range.
+                Defaults to "2000-01-01" if None.
+            end (Union[pandas.Timestamp, str, None]): Inclusive upper bound for the time range.
+                Defaults to "now" if None.
+
+        Returns:
+            pandas.DataFrame: A pivoted DataFrame with index = self.time_col and columns = self.code_col.
+                Missing pairs will appear as NaN.
+
+        Raises:
+            KeyError: If the specified financial indicator does not exist.
+            ValueError: If begin is after end or date parsing fails.
+            Exception: Propagated errors from the storage backend.
+
+        Examples:
+            >>> df = source.get_financial("net_profit", dtype="mrq", begin="2023-01-01", end="2023-12-31")
+            >>> df.index.name
+            'date'
+            >>> df.columns[:5]
+            Index(['000001.SZ', '000002.SZ', ...], dtype='object')
+        """
+
+        begin = pd.to_datetime(begin or "2000-01-01")
+        begin_offset = self.get_time(begin, 252)
+        end = pd.to_datetime(end or "now")
+        data = (
+            self.dp.dpivot(
+                index=self.time_col,
+                columns=self.code_col,
+                values=dtype,
+                where=f"{self.time_col} >= '{begin_offset}' AND {self.time_col} <= '{end}'"
+                + (f"AND account_name = '{name}'"),
+                order_by=self.time_col,
+            )
+            .set_index(self.time_col)
+            .ffill()
+            .loc[begin:]
+        )
         data.attrs["name"] = name
         return data
 
