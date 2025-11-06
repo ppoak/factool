@@ -272,7 +272,7 @@ class DuckParquetSource:
         """
 
         begin = pd.to_datetime(begin or "2000-01-01")
-        begin_offset = self.get_time(begin, 252)
+        begin_offset = self.get_time(begin, 63)
         end = pd.to_datetime(end or "now")
         data = (
             self.dp.dpivot(
@@ -285,8 +285,10 @@ class DuckParquetSource:
             )
             .set_index(self.time_col)
             .ffill()
-            .loc[begin:]
         )
+        if data.loc[begin:end].empty:
+            data.loc[begin] = data.loc[end] = data.iloc[-1]
+            data = data.loc[begin:end]
         data.attrs["name"] = name
         return data
 
@@ -395,7 +397,7 @@ class DuckParquetSource:
         )
 
     def __str__(self):
-        return super().__str__() + f"(\n{self.get_all_factors()}\n)"
+        return f"DuckParquetSource(\n{self.get_all_factors()}\n)"
 
     def __repr__(self):
-        return super().__repr__()
+        return self.__str__()
