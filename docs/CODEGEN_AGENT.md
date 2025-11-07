@@ -15,22 +15,21 @@
 - 说明：
 
   - 在编码前请根据计算步骤明确需要的数据源有哪些，并使用工具获取可用数据源及数据源对应的信息。如果存在计算因子的数据源未在可用数据源中找到，直接告诉用户无法完成这个需求，列明原因。
-  - 所有因子函数命名须符合规范：calc_<因子名>
   - 因子函数的输入为str或pd.Timestamp类型，即因子函数只负责一个时间截面上若干个因子的自动生成任务。
+  - 所有因子函数命名须符合规范：`calc_<脚本名称>`。
   - 因子的输出类型为pd.Series或pd.DataFrame。当输出为时间截面上的一个因子时，返回Series；当输出为时间截面上多个因子时，返回DataFrame。注意Series的name属性为因子名称，同理DataFrame也与每一列的因子名称一一对应。
   - 因子数据源source可获取指定时间范围内的因子值，以pd.DataFrame的形式返回宽表（列为股票代码，行为时间索引，详细说明见factool模块说明）。
 - factool模块：
 
   - factool模块是专门为该项目编写的，以DuckParquet为数据底座的因子分析库。
-  - factool包含source模块、operators模块、evaluator模块。source模块存放DuckParquetSource数据源接口，operators存放各种因子计算操作符，evaluator模块存放因子计算结果的评估类Evaluator。他们都可以直接从factool工具库中直接import。
+  - factool包含三个主要类可供对外使用，分别为 `DuckParquetSource`、`Operator`、`Evaluator`；他们都可以直接从factool工具库中直接import，分别对应于数据读取、存储需求，因子操作计算需求以及因子评估需求。
 - 数据读取最佳实践：
 
   - DuckParquetSource可以通过 `from factool import DcukParqueSource` 直接引入使用。
-  - 你的数据都需要使用DuckParquetSource进行读取。
+  - 你的数据都需要使用DuckParquetSource进行读取。DuckParquetSource最重要的参数为数据表路径，可供选择的有环境变量中的 QUOTESDAY_PATH、FINANCIALREPORT_PATH。
   - DuckParquetSource本质是以DuckDB作为操作引擎，Parquet文件为底层存储的一组Paruqet文件目录。分区列为date，所以在设定初始化DuckParquetSource时，选用time_col="date"为最佳性能实践。
-  - 尽管分区列为date，但所有数据源都另外提供列time，对于日线数据，时间点为00:00:00；对于分钟线，时间点为每个交易分钟。但date均为交易日的零点的时间戳。
   - 所有数据源通过get_factor得到的返回结果均为一个以pd.DatetimeIndex索引的宽表，列为股票代码，值为get_factor参数的因子值。get_factor函数使用示例为 `dps.get_factor("market_size", begin="2020-01-01", end="2020-01-31")`，这将以宽表形式获取2020-01-01到2020-01-31一个月的市值因子数据。另外，可以通过 `where`参数为数据添加进一步的过滤，例如获取特定指数数据：`dps.get_factor("close_post", where="code = '000985.CSI'", begin="2025-01-01", end="2025-06-30")`。
-  - 数据源 `financial_report`可以通过get_financial获取PIT的财务数据，参数形式与get_factor函数类似，例如获取净利润指标：`dps.get_financial("net_profit", begin="2020-01-01", end="2025-01-02")`，还有默认参数dtype，表示财务数据计算类型，可选"ttm"，"lyr"，"mrq"，默认"ttm"。例如获取净利润的mrq数据：`dps.get_financial("net_profit", dtype="mrq", begin="2020-01-01", end="2025-01-02")`
+  - 数据源 `financial_report`可以通过get_financial获取PIT的财务数据，参数形式与get_factor函数类似，例如获取净利润指标：`dps.get_financial("net_profit", begin="2020-01-01", end="2025-01-02")`，还有默认参数 `reptype="ttm"`，表示财务数据计算类型，可选"ttm"，"lyr"，"mrq"，默认"ttm"。例如获取净利润的mrq数据：`dps.get_financial("net_profit", reptype="mrq", begin="2020-01-01", end="2025-01-02")`。但需要注意的是，由于财报数据以数据更新时点存储，因此财务数据表中的数据日期与市场行情数据（quotes）无法对齐。所以，在使用财报数据源时，需要加一步与市场数据或目标计算数据对齐的步骤，根据PIT数据特性，需要将缺失值使用最近一期的财报数据填充。例如：`net_profit = net_profit.reindex(close_price.index).ffill()`。
   - 所有数据源均可通过source.get_times(begin, end)获取到begin和end参数之间所有有数据的交易日因子信息。
   - 所有数据源均可通过source.get_time(time, n)获取到time时间点前移（n>0）或后移（n<0）n天的有数据的因子日。
 

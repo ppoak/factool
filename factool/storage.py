@@ -231,7 +231,7 @@ class DuckParquetSource:
     def get_financial(
         self,
         name: str,
-        dtype: Literal["ttm", "lyr", "mrq"] = "ttm",
+        reptype: Literal["ttm", "lyr", "mrq"] = "ttm",
         begin: Union[pd.Timestamp, str] = None,
         end: Union[pd.Timestamp, str] = None,
     ) -> pd.DataFrame:
@@ -278,7 +278,7 @@ class DuckParquetSource:
             self.dp.dpivot(
                 index=self.time_col,
                 columns=self.code_col,
-                values=dtype,
+                values=reptype,
                 where=f"{self.time_col} >= '{begin_offset}' AND {self.time_col} <= '{end}'"
                 + (f"AND account_name = '{name}'"),
                 order_by=self.time_col,
