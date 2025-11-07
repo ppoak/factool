@@ -40,6 +40,7 @@ class DuckParquetSource:
     def __init__(
         self,
         dataset_path: str,
+        create: bool = True,
         time_col: str = "date",
         code_col: str = "code",
         name: str = None,
@@ -65,7 +66,7 @@ class DuckParquetSource:
             - No data is read at construction time.
             - The provided column names are used in later queries and pivots.
         """
-        self.dp = DuckParquet(dataset_path, name, db_path, threads)
+        self.dp = DuckParquet(dataset_path, name, create, db_path, threads)
         self.time_col = time_col
         self.code_col = code_col
 
