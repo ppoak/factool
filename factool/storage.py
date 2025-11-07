@@ -286,9 +286,9 @@ class DuckParquetSource:
             .set_index(self.time_col)
             .ffill()
         )
-        if data.loc[begin:end].empty:
-            data.loc[begin] = data.loc[end] = data.iloc[-1]
-            data = data.loc[begin:end]
+        idx = data.index.union([begin, end])
+        data = data.reindex(idx).ffill()
+        data = data.loc[begin:end]
         data.attrs["name"] = name
         return data
 
