@@ -3,10 +3,224 @@ from typing import Dict, Optional, List, Union
 
 import numpy as np
 import pandas as pd
-from openpyxl.chart import LineChart, BarChart, Reference
+from openpyxl.chart import LineChart, BarChart, ScatterChart, Reference, Series
 
 import quool
 from factool import Evaluator
+
+
+def _resolve_col(
+    ws, spec: Union[int, str, None], headers: bool, header_row: int, max_col: int
+) -> Optional[int]:
+    """Resolve a column spec (int index or header name) to a column index."""
+    if spec is None:
+        return None
+    if isinstance(spec, int):
+        return spec
+    if isinstance(spec, str):
+        if not headers:
+            raise ValueError(
+                "When headers=False, header names cannot be used to select columns."
+            )
+        for c in range(1, max_col + 1):
+            if ws.cell(row=header_row, column=c).value == spec:
+                return c
+        raise ValueError(f"Header column not found: {spec}")
+    raise ValueError("Column spec must be an integer index or header string.")
+
+
+def _add_line_chart(
+    ws,
+    title: Optional[str] = None,
+    anchor: str = "G2",
+    headers: bool = True,
+    category_col: Optional[
+        Union[int, str]
+    ] = 1,  # Category axis column (default: 1st column)
+    series_cols: Optional[
+        List[Union[int, str]]
+    ] = None,  # Data series columns (default: 2..last)
+    colors: Optional[List[str]] = None,  # Hex RGB like ["FF0000", "00FF00"]
+    width: Optional[float] = None,
+    height: Optional[float] = None,
+):
+    """Add a line chart to the worksheet."""
+    if ws.max_row < 2 or ws.max_column < 2:
+        return None
+
+    max_row = ws.max_row
+    max_col = ws.max_column
+    header_row = 1
+    data_start_row = 2 if headers else 1
+
+    chart = LineChart()
+    chart.title = title or ""
+    if width is not None:
+        chart.width = width
+    if height is not None:
+        chart.height = height
+
+    cat_col = _resolve_col(ws, category_col, headers, header_row, max_col)
+
+    if series_cols is None:
+        series_cols = [c for c in range(2, max_col + 1) if c != cat_col]
+
+    # Add each selected column as a series. Use titles_from_data=headers for names.
+    for col_spec in series_cols:
+        col = _resolve_col(ws, col_spec, headers, header_row, max_col)
+        data_ref = Reference(
+            ws,
+            min_col=col,
+            min_row=header_row if headers else data_start_row,
+            max_col=col,
+            max_row=max_row,
+        )
+        chart.add_data(data_ref, titles_from_data=headers)
+
+    if cat_col is None:
+        raise ValueError("Line chart requires category_col.")
+
+    cats = Reference(ws, min_col=cat_col, min_row=data_start_row, max_row=max_row)
+    chart.set_categories(cats)
+
+    # Apply colors if provided
+    if colors:
+        for i, s in enumerate(chart.series):
+            if i < len(colors):
+                s.graphicalProperties.line.solidFill = colors[i]
+
+    ws.add_chart(chart, anchor)
+    return chart
+
+
+def _add_bar_chart(
+    ws,
+    title: Optional[str] = None,
+    anchor: str = "G2",
+    headers: bool = True,
+    category_col: Optional[
+        Union[int, str]
+    ] = 1,  # Category axis column (default: 1st column)
+    series_cols: Optional[
+        List[Union[int, str]]
+    ] = None,  # Data series columns (default: 2..last)
+    colors: Optional[List[str]] = None,  # Hex RGB like ["FF0000", "00FF00"]
+    width: Optional[float] = None,
+    height: Optional[float] = None,
+    bar_type: str = "col",  # "col" (vertical) or "bar" (horizontal)
+    grouping: Optional[str] = None,  # None | "clustered" | "stacked" | "percentStacked"
+):
+    """Add a bar chart to the worksheet."""
+    if ws.max_row < 2 or ws.max_column < 2:
+        return None
+
+    max_row = ws.max_row
+    max_col = ws.max_column
+    header_row = 1
+    data_start_row = 2 if headers else 1
+
+    chart = BarChart()
+    chart.title = title or ""
+    chart.type = bar_type
+    if grouping:
+        chart.grouping = grouping
+    if width is not None:
+        chart.width = width
+    if height is not None:
+        chart.height = height
+
+    cat_col = _resolve_col(ws, category_col, headers, header_row, max_col)
+
+    if series_cols is None:
+        series_cols = [c for c in range(2, max_col + 1) if c != cat_col]
+
+    # Add each selected column as a series with optional titles from header
+    for col_spec in series_cols:
+        col = _resolve_col(ws, col_spec, headers, header_row, max_col)
+        data_ref = Reference(
+            ws,
+            min_col=col,
+            min_row=header_row if headers else data_start_row,
+            max_col=col,
+            max_row=max_row,
+        )
+        chart.add_data(data_ref, titles_from_data=headers)
+
+    if cat_col is None:
+        raise ValueError("Bar chart requires category_col.")
+    cats = Reference(ws, min_col=cat_col, min_row=data_start_row, max_row=max_row)
+    chart.set_categories(cats)
+
+    # Apply fill colors for bars
+    if colors:
+        for i, s in enumerate(chart.series):
+            if i < len(colors):
+                s.graphicalProperties.solidFill = colors[i]
+
+    ws.add_chart(chart, anchor)
+    return chart
+
+
+def _add_scatter_chart(
+    ws,
+    title: Optional[str] = None,
+    anchor: str = "G2",
+    headers: bool = True,
+    x_col: Optional[
+        Union[int, str]
+    ] = None,  # X axis column (defaults to category_col if set)
+    y_cols: Optional[
+        List[Union[int, str]]
+    ] = None,  # Y series columns (default: all except X)
+    category_col: Optional[
+        Union[int, str]
+    ] = 1,  # Fallback for X axis when x_col is None
+    colors: Optional[List[str]] = None,  # Hex RGB like ["FF0000", "00FF00"]
+    width: Optional[float] = None,
+    height: Optional[float] = None,
+    scatter_style: str = "marker",  # "marker" | "line" | "lineMarker"
+):
+    """Add a scatter chart to the worksheet."""
+    if ws.max_row < 2 or ws.max_column < 2:
+        return None
+
+    max_row = ws.max_row
+    max_col = ws.max_column
+    header_row = 1
+    data_start_row = 2 if headers else 1
+
+    chart = ScatterChart()
+    chart.title = title or ""
+    chart.scatterStyle = scatter_style
+    if width is not None:
+        chart.width = width
+    if height is not None:
+        chart.height = height
+
+    x_c = (
+        _resolve_col(ws, x_col, headers, header_row, max_col)
+        if x_col is not None
+        else _resolve_col(ws, category_col, headers, header_row, max_col)
+    )
+    if x_c is None:
+        raise ValueError("Scatter chart requires x_col or category_col as X axis.")
+    xvalues = Reference(ws, min_col=x_c, min_row=data_start_row, max_row=max_row)
+
+    if y_cols is None:
+        y_cols = [c for c in range(1, max_col + 1) if c != x_c]
+
+    for idx, col_spec in enumerate(y_cols):
+        col = _resolve_col(ws, col_spec, headers, header_row, max_col)
+        yvalues = Reference(ws, min_col=col, min_row=data_start_row, max_row=max_row)
+        s = Series(yvalues, xvalues)
+        s.marker.symbol = "circle"
+        s.graphicalProperties.line.noFill = True
+        chart.series.append(s)
+        if colors and idx < len(colors):
+            s.graphicalProperties.line.solidFill = colors[idx]
+
+    ws.add_chart(chart, anchor)
+    return chart
 
 
 def run_factor_pipeline(
@@ -116,6 +330,7 @@ def run_factor_pipeline(
         - group_eval is computed via quool.Evaluator.evaluate applied column-wise to group_value.
     """
     e = Evaluator(factor=factor, price=price)
+    asset_returns = e._future_return(horizon=horizon, skip=skip_horizon)
 
     # Step 1: IC and direction
     e.get_info_coef(horizon=horizon, skip_horizon=skip_horizon, method=ic_method)
@@ -138,8 +353,13 @@ def run_factor_pipeline(
         + [factor_return],
         axis=1,
     )
+    group_returns_mean = group_returns.mean()
+    group_returns_t = group_returns_mean / (
+        group_returns.std() / np.sqrt(group_returns.shape[0])
+    )
+
     group_value = (
-        1 + group_returns.shift(1 + horizon).dropna(how="all", axis=0).fillna(0)
+        1 + group_returns.shift(1).dropna(how="all", axis=0).fillna(0)
     ).cumprod()
     group_eval = group_value.apply(quool.Evaluator.evaluate)
 
@@ -184,11 +404,14 @@ def run_factor_pipeline(
         gmm_result = e.gmm_result
 
     return {
+        "asset_returns": asset_returns,
         "ic": ic,
         "ic_mean": ic_mean,
         "ic_tstat": ic_tstat,
         "factor_return": factor_return,
         "group_returns": group_returns,
+        "group_returns_mean": group_returns_mean,
+        "group_returns_t": group_returns_t,
         "group_value": group_value,
         "group_eval": group_eval,
         "factor_exposure_mean": factor_exposure_mean,
@@ -202,36 +425,6 @@ def run_factor_pipeline(
         "grs_pval": grs_pval,
         "gmm_result": gmm_result,
     }
-
-
-def _add_line_chart(ws, title, anchor="G2"):
-    if ws.max_row < 2 or ws.max_column < 2:
-        return
-    chart = LineChart()
-    chart.title = title
-    data = Reference(
-        ws, min_col=2, min_row=1, max_col=ws.max_column, max_row=ws.max_row
-    )
-    chart.add_data(data, titles_from_data=True)
-    cats = Reference(ws, min_col=1, min_row=2, max_row=ws.max_row)
-    chart.set_categories(cats)
-    chart.x_axis.title = ws.cell(row=1, column=1).value or ""
-    ws.add_chart(chart, anchor)
-
-
-def _add_bar_chart(ws, title, anchor="G2"):
-    if ws.max_row < 2 or ws.max_column < 2:
-        return
-    chart = BarChart()
-    chart.type = "col"
-    chart.title = title
-    data = Reference(
-        ws, min_col=2, min_row=1, max_col=ws.max_column, max_row=ws.max_row
-    )
-    chart.add_data(data, titles_from_data=True)
-    cats = Reference(ws, min_col=1, min_row=2, max_row=ws.max_row)
-    chart.set_categories(cats)
-    ws.add_chart(chart, anchor)
 
 
 def save_factor_pipeline(
@@ -336,13 +529,19 @@ def save_factor_pipeline(
 
     with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
         results["ic"].reset_index().to_excel(writer, index=False, sheet_name="IC")
-        results["group_returns"].reset_index().to_excel(
+        pd.concat(
+            [
+                results["group_returns_mean"].to_frame("Group Return Mean"),
+                results["group_returns_t"].to_frame("Group Return T"),
+            ],
+            axis=1,
+        ).reset_index(names=["category"]).to_excel(
             writer, index=False, sheet_name="Group Return"
         )
         results["group_value"].reset_index().to_excel(
             writer, index=False, sheet_name="Group Value"
         )
-        results["group_eval"].reset_index().to_excel(
+        results["group_eval"].reset_index(names=["indicator"]).to_excel(
             writer, index=False, sheet_name="Group Eval"
         )
 
@@ -350,6 +549,7 @@ def save_factor_pipeline(
             [
                 results["factor_exposure_mean"],
                 results["factor_exposure_mean_t"],
+                results["asset_returns"].mean().to_frame("Asset Return Mean"),
             ],
             axis=1,
         ).reset_index(names=["code"]).to_excel(
@@ -368,35 +568,64 @@ def save_factor_pipeline(
         )
 
         pd.concat(
-            [
-                results["ic_mean"].add_suffix("-ic-mean"),
-                results["ic_tstat"].add_suffix("-ic-t"),
-                pd.Series(
-                    {
-                        "grs_stat": results["grs_stat"],
-                        "grs_pval": results["grs_pval"],
-                    },
-                ),
-                results["fmb_premia"].add_suffix("-fmb_premia"),
-                results["fmb_premia_t"].add_suffix("-fmb_premia-t"),
-                pd.Series(
-                    {
-                        "gmm_J": results["gmm_result"]["J"],
-                        "gmm_pval": results["gmm_result"]["pval"],
-                    }
-                ),
-            ]
+            (
+                [
+                    results["ic_mean"].add_suffix("-ic-mean"),
+                    results["ic_tstat"].add_suffix("-ic-t"),
+                    pd.Series(
+                        {
+                            "grs_stat": results["grs_stat"],
+                            "grs_pval": results["grs_pval"],
+                        },
+                    ),
+                    results["fmb_premia"].add_suffix("-fmb_premia"),
+                    results["fmb_premia_t"].add_suffix("-fmb_premia-t"),
+                ]
+                + (
+                    [
+                        pd.Series(
+                            {
+                                "gmm_J": results["gmm_result"]["J"],
+                                "gmm_pval": results["gmm_result"]["pval"],
+                            }
+                        )
+                    ]
+                    if run_gmm
+                    else []
+                )
+            ),
         ).to_frame("Stats").reset_index(names=["stat_name"]).to_excel(
             writer, index=False, sheet_name="Stats"
         )
 
         # IC (line chart over time)
         ws = writer.sheets["IC"]
-        _add_bar_chart(ws, title="Information Coefficient")
+        _add_bar_chart(
+            ws,
+            category_col=1,
+            title="Information Coefficient",
+        )
 
         # Group Value (line chart of cumulative values)
         ws = writer.sheets["Group Value"]
         _add_line_chart(ws, title="Group Portfolio Cumulative Value")
+
+        # Group Return (bar chart of group returns)
+        ws = writer.sheets["Group Return"]
+        _add_bar_chart(ws, series_cols=[2], title="Group Portfolio Returns")
+
+        # Time Series Regression (scatter chart of exposures)
+        ws = writer.sheets["Time Series Regression"]
+        _add_scatter_chart(
+            ws,
+            x_col=2,
+            y_cols=[6],
+            title="Time-Series Factor Exposure vs Asset Return",
+        )
+
+        # Cross Sectional Regression (bar chart of premia)
+        ws = writer.sheets["Cross Sectional Regression"]
+        _add_bar_chart(ws, series_cols=[3], title="Cross-Sectional Factor Premia")
 
     return f"Factor evaluation ended\n\n![result]({str(output_path)})"
 
@@ -412,15 +641,16 @@ if __name__ == "__main__":
 
     begin = "2015-01-01"
     end = "2025-06-30"
-    horizon = 21
+    horizon = 1
     skip_horizon = True
-    output_path = "out/log_market_size.xlsx"
+    output_path = "out/barra_bookprice.xlsx"
     n_groups = 10
     bucketing_mode = "single"
     ts_n_jobs = -1
+    run_gmm = True
 
-    dps = factool.DuckParquetSource(f"data/barra_sizes")
-    df = dps.get_factor("barra_sizes", begin=begin, end=end)
+    dps = factool.DuckParquetSource(f"data/barra_bookprice")
+    df = dps.get_factor("barra_bookprice", begin=begin, end=end)
     source = factool.DuckParquetSource(os.getenv("QUOTESDAY_PATH"))
     price = source.get_factor("close_post", begin=begin, end=end)
 
@@ -434,4 +664,5 @@ if __name__ == "__main__":
         n_groups=n_groups,
         bucketing_mode=bucketing_mode,
         ts_n_jobs=ts_n_jobs,
+        run_gmm=run_gmm,
     )
