@@ -1,9 +1,10 @@
 from pathlib import Path
-from typing import Dict, Optional, List, Union
+from typing import Dict, Optional, List, Union, Literal
 
 import numpy as np
 import pandas as pd
 from openpyxl.chart import LineChart, BarChart, ScatterChart, Reference, Series
+from openpyxl.chart.legend import Legend
 
 import quool
 from factool import Evaluator
@@ -40,6 +41,9 @@ def _add_line_chart(
     series_cols: Optional[
         List[Union[int, str]]
     ] = None,  # Data series columns (default: 2..last)
+    x_axis: bool = True,
+    y_axis: bool = True,
+    legend: Optional[Legend] = None,
     colors: Optional[List[str]] = None,  # Hex RGB like ["FF0000", "00FF00"]
     width: Optional[float] = None,
     height: Optional[float] = None,
@@ -88,6 +92,9 @@ def _add_line_chart(
         for i, s in enumerate(chart.series):
             if i < len(colors):
                 s.graphicalProperties.line.solidFill = colors[i]
+    chart.x_axis.delete = not x_axis
+    chart.y_axis.delete = not y_axis
+    chart.legend = legend
 
     ws.add_chart(chart, anchor)
     return chart
@@ -104,6 +111,9 @@ def _add_bar_chart(
     series_cols: Optional[
         List[Union[int, str]]
     ] = None,  # Data series columns (default: 2..last)
+    x_axis: bool = True,
+    y_axis: bool = True,
+    legend: Optional[Legend] = None,
     colors: Optional[List[str]] = None,  # Hex RGB like ["FF0000", "00FF00"]
     width: Optional[float] = None,
     height: Optional[float] = None,
@@ -157,6 +167,10 @@ def _add_bar_chart(
             if i < len(colors):
                 s.graphicalProperties.solidFill = colors[i]
 
+    chart.x_axis.delete = not x_axis
+    chart.y_axis.delete = not y_axis
+    chart.legend = legend
+
     ws.add_chart(chart, anchor)
     return chart
 
@@ -175,10 +189,15 @@ def _add_scatter_chart(
     category_col: Optional[
         Union[int, str]
     ] = 1,  # Fallback for X axis when x_col is None
+    x_axis: bool = True,
+    y_axis: bool = True,
+    legend: Optional[Legend] = None,
     colors: Optional[List[str]] = None,  # Hex RGB like ["FF0000", "00FF00"]
     width: Optional[float] = None,
     height: Optional[float] = None,
-    scatter_style: str = "marker",  # "marker" | "line" | "lineMarker"
+    scatter_style: Literal[
+        "marker", "line", "lineMarker"
+    ] = "marker",  # "marker" | "line" | "lineMarker"
 ):
     """Add a scatter chart to the worksheet."""
     if ws.max_row < 2 or ws.max_column < 2:
@@ -214,10 +233,16 @@ def _add_scatter_chart(
         yvalues = Reference(ws, min_col=col, min_row=data_start_row, max_row=max_row)
         s = Series(yvalues, xvalues)
         s.marker.symbol = "circle"
+        s.marker.size = 5
         s.graphicalProperties.line.noFill = True
         chart.series.append(s)
         if colors and idx < len(colors):
-            s.graphicalProperties.line.solidFill = colors[idx]
+            s.marker.graphicalProperties.solidFill = colors[idx]
+            s.marker.graphicalProperties.line.noFill = True
+    
+    chart.x_axis.delete = not x_axis
+    chart.y_axis.delete = not y_axis
+    chart.legend = legend
 
     ws.add_chart(chart, anchor)
     return chart
@@ -606,13 +631,13 @@ def save_factor_pipeline(
             title="Information Coefficient",
         )
 
-        # Group Value (line chart of cumulative values)
-        ws = writer.sheets["Group Value"]
-        _add_line_chart(ws, title="Group Portfolio Cumulative Value")
-
         # Group Return (bar chart of group returns)
         ws = writer.sheets["Group Return"]
         _add_bar_chart(ws, series_cols=[2], title="Group Portfolio Returns")
+
+        # Group Value (line chart of cumulative values)
+        ws = writer.sheets["Group Value"]
+        _add_line_chart(ws, title="Group Portfolio Cumulative Value")
 
         # Time Series Regression (scatter chart of exposures)
         ws = writer.sheets["Time Series Regression"]
@@ -639,7 +664,7 @@ if __name__ == "__main__":
 
     dotenv.load_dotenv()
 
-    begin = "2015-01-01"
+    begin = "2025-01-01"
     end = "2025-06-30"
     horizon = 1
     skip_horizon = True
@@ -655,7 +680,7 @@ if __name__ == "__main__":
     price = source.get_factor("close_post", begin=begin, end=end)
 
     notifier = parquool.notify_task()
-    notifier(save_factor_pipeline)(
+    (save_factor_pipeline)(
         factor=[df],
         price=price,
         horizon=horizon,
