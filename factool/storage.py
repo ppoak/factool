@@ -287,7 +287,7 @@ class DuckParquetSource:
             .set_index(self.time_col)
             .ffill()
         )
-        idx = data.index.union([begin, end])
+        idx = data.index.union(set([begin, end])).sort_values()
         data = data.reindex(idx).ffill()
         data = data.loc[begin:end]
         data.attrs["name"] = name

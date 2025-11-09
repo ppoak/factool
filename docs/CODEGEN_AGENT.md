@@ -8,7 +8,7 @@
 - 代码需包含所有必要的import、函数定义和类型标记。
 - 不要输出markdown格式，只输出纯代码（不要```python标记，也不要文字说明）。
 - 只生成一个calc_因子名函数，不论输入是多少个因子，都只生成一个函数。
-- 生成的每一个脚本最后，需要添加 `if __name__ == "__main__"`并添加对该因子生成函数在某个交易日的调用，进行简单测试。
+- 生成的每一个脚本最后，需要添加 `if __name__ == "__main__"`并添加对该因子生成函数在某个交易日的调用，进行简单测试，并通过计算非NaN值和总数据量的比值得到一个数据覆盖率。
 
 ## Illustrations
 
@@ -29,7 +29,7 @@
   - 你的数据都需要使用DuckParquetSource进行读取。DuckParquetSource最重要的参数为数据表路径，可供选择的有环境变量中的 QUOTESDAY_PATH、FINANCIALREPORT_PATH。
   - DuckParquetSource本质是以DuckDB作为操作引擎，Parquet文件为底层存储的一组Paruqet文件目录。分区列为date，所以在设定初始化DuckParquetSource时，选用time_col="date"为最佳性能实践。
   - 所有数据源通过get_factor得到的返回结果均为一个以pd.DatetimeIndex索引的宽表，列为股票代码，值为get_factor参数的因子值。get_factor函数使用示例为 `dps.get_factor("market_size", begin="2020-01-01", end="2020-01-31")`，这将以宽表形式获取2020-01-01到2020-01-31一个月的市值因子数据。另外，可以通过 `where`参数为数据添加进一步的过滤，例如获取特定指数数据：`dps.get_factor("close_post", where="code = '000985.CSI'", begin="2025-01-01", end="2025-06-30")`。
-  - 数据源 `financial_report`可以通过get_financial获取PIT的财务数据，参数形式与get_factor函数类似，例如获取净利润指标：`dps.get_financial("net_profit", begin="2020-01-01", end="2025-01-02")`，还有默认参数 `reptype="ttm"`，表示财务数据计算类型，可选"ttm"，"lyr"，"mrq"，默认"ttm"。例如获取净利润的mrq数据：`dps.get_financial("net_profit", reptype="mrq", begin="2020-01-01", end="2025-01-02")`。但需要注意的是，在使用财报数据源时，需要加一步与市场数据或目标计算数据对齐的步骤，根据PIT数据特性，需要将缺失值使用最近一期的财报数据填充。例如：`net_profit = net_profit.reindex(close_price.index).ffill()`。
+  - 数据源 `financial_report`可以通过get_financial获取PIT的财务数据，参数形式与get_factor函数类似，例如获取净利润指标：`dps.get_financial("net_profit", begin="2020-01-01", end="2025-01-02")`，还有默认参数 `reptype="ttm"`，表示财务数据计算类型，可选"ttm"，"lyr"，"mrq"，默认"ttm"。例如获取净利润的mrq数据：`dps.get_financial("net_profit", reptype="mrq", begin="2020-01-01", end="2025-01-02")`。但需要注意的是，在使用财报数据源后，需要加一步与市场数据或目标计算数据对齐的步骤，根据PIT数据特性，需要将缺失值使用最近一期的财报数据填充。例如：`net_profit = net_profit.reindex(close_price.index).ffill()`。但注意，接口内部已实现针对自身已有的财务数据更新日期数据的对齐，例如2025-01-03在财务数据库中，因此已存在数据索引中并更新；接口内还会对开始和结束日期对齐，因此，针对一日的数据，无需与市场数据索引对齐的步骤。
   - 所有数据源均可通过source.get_times(begin, end)获取到begin和end参数之间所有有数据的交易日因子信息。
   - 所有数据源均可通过source.get_time(time, n)获取到time时间点前移（n>0）或后移（n<0）n天的有数据的因子日。
 
@@ -58,5 +58,8 @@ def calc_market_size(time: Union[str, pd.Timestamp]) -> pd.DataFrame:
     )
 
 if __name__ == "__main__":
-    print(calc_market_size("2025-01-02"))
+    df = calc_market_size("2025-01-02")
+    print(df)
+    coverage = df.count() / df.shape[0]
+    print(coverage)
 ```
