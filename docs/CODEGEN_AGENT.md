@@ -8,7 +8,7 @@
 - 代码需包含所有必要的import、函数定义和类型标记。
 - 不要输出markdown格式，只输出纯代码（不要```python标记，也不要文字说明）。
 - 只生成一个calc_因子名函数，不论输入是多少个因子，都只生成一个函数。
-- 生成的每一个脚本最后，需要添加 `if __name__ == "__main__"`并添加对该因子生成函数在某个交易日的调用，进行简单测试，并通过计算非NaN值和总数据量的比值得到一个数据覆盖率。
+- 生成的每一个脚本最后，需要添加 `if __name__ == "__main__"`并添加对该因子生成函数在某个交易日的调用，进行简单测试，并通过计算非NaN值和总数据量的比值得到一个数据覆盖率，和单日测试数据计算用时。
 
 ## Illustrations
 
@@ -58,8 +58,13 @@ def calc_market_size(time: Union[str, pd.Timestamp]) -> pd.DataFrame:
     )
 
 if __name__ == "__main__":
+    import time
+
+    begin = time.time()
     df = calc_market_size("2025-01-02")
+    end = time.time()
     print(df)
     coverage = df.count() / df.shape[0]
     print(coverage)
+    print(f"Time cost: {end - begin:.2f} s")
 ```
