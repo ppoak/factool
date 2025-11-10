@@ -17,11 +17,11 @@ def calc_barra_leverage(time: Union[str, pd.Timestamp]) -> pd.DataFrame:
     me = (close * shares)
     idx = me.index
 
-    preference_shares = fin.get_financial("preference_shares", reptype="ttm", begin=time, end=time).squeeze().reindex(idx).fillna(0)
-    non_current_liabilities = fin.get_financial("non_current_liabilities", reptype="ttm", begin=time, end=time).squeeze().reindex(idx)
-    total_equity = fin.get_financial("total_equity", reptype="ttm", begin=time, end=time).squeeze().reindex(idx)
-    total_assets = fin.get_financial("total_assets", reptype="ttm", begin=time, end=time).squeeze().reindex(idx)
-    total_liabilities = fin.get_financial("total_liabilities", reptype="ttm", begin=time, end=time).squeeze().reindex(idx)
+    preference_shares = fin.get_financial("preference_shares", reptype="ttm", begin=time, end=time).iloc[-1].reindex(idx).fillna(0)
+    non_current_liabilities = fin.get_financial("non_current_liabilities", reptype="ttm", begin=time, end=time).iloc[-1].reindex(idx)
+    total_equity = fin.get_financial("total_equity", reptype="ttm", begin=time, end=time).iloc[-1].reindex(idx)
+    total_assets = fin.get_financial("total_assets", reptype="ttm", begin=time, end=time).iloc[-1].reindex(idx)
+    total_liabilities = fin.get_financial("total_liabilities", reptype="ttm", begin=time, end=time).iloc[-1].reindex(idx)
 
     mask = (~st.reindex(idx)) & (~suspended.reindex(idx))
 
