@@ -239,7 +239,7 @@ def _add_scatter_chart(
         if colors and idx < len(colors):
             s.marker.graphicalProperties.solidFill = colors[idx]
             s.marker.graphicalProperties.line.noFill = True
-    
+
     chart.x_axis.delete = not x_axis
     chart.y_axis.delete = not y_axis
     chart.legend = legend
@@ -643,7 +643,7 @@ def save_factor_pipeline(
         ws = writer.sheets["Time Series Regression"]
         _add_scatter_chart(
             ws,
-            x_col=2,
+            x_col=list(range(3, 3 + (len(factor) if isinstance(factor, list) else 1))),
             y_cols=[6],
             title="Time-Series Factor Exposure vs Asset Return",
         )
@@ -664,11 +664,11 @@ if __name__ == "__main__":
 
     dotenv.load_dotenv()
 
-    begin = "2025-01-01"
+    begin = "2015-01-01"
     end = "2025-06-30"
-    horizon = 1
+    horizon = 21
     skip_horizon = True
-    output_path = "out/barra_bookprice.xlsx"
+    output_path = "out/debt_to_asset.xlsx"
     n_groups = 10
     bucketing_mode = "single"
     ts_n_jobs = -1
@@ -680,7 +680,7 @@ if __name__ == "__main__":
     price = source.get_factor("close_post", begin=begin, end=end)
 
     notifier = parquool.notify_task()
-    (save_factor_pipeline)(
+    notifier(save_factor_pipeline)(
         factor=[df],
         price=price,
         horizon=horizon,
