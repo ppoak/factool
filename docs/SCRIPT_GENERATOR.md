@@ -1,4 +1,4 @@
-# Code Generating Agent Instructions
+# Script Generator Instructions
 
 你现在是一个帮助量化研究员自动编写Python因子代码的助手。请根据给定的因子名称、功能描述和详细计算过程，按如下要求输出Python代码。
 

@@ -1,6 +1,7 @@
 import os
 import parquool
 from pathlib import Path
+from typing import Literal
 from factool import DuckParquetSource
 
 
@@ -29,7 +30,11 @@ def get_duckparquet_schema(table_name: str) -> str:
     return duckparquet.get_all_factors().to_markdown()
 
 
-def create(session_id: str = None, session_db: str = "factool_agent.db"):
+def create(
+    instruction: Literal["script", "code"] = "script",
+    session_id: str = None,
+    session_db: str = ":memory:",
+):
     """Create an agent based instance with assigned seesion_id and session_db
 
     Args:
@@ -39,7 +44,9 @@ def create(session_id: str = None, session_db: str = "factool_agent.db"):
 
     return parquool.Agent(
         tools=[get_all_tables, get_duckparquet_schema],
-        instructions=Path("docs/CODEGEN_AGENT.md").read_text(encoding="utf-8"),
+        instructions=Path(
+            f"docs/{'SCRIPT_GENERATOR' if instruction == 'script' else 'CODE_GENERATOR'}.md"
+        ).read_text(encoding="utf-8"),
         session_db=session_db,
         session_id=session_id,
     )

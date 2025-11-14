@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "factool"
-version = "0.3.0"
+version = "0.3.1"
 description = "Factor tool is a quant framework for factor research."
 readme = { file = "README.md", content-type = "text/markdown" }
 authors = [
@@ -24,7 +24,7 @@ dependencies = [
     "markdown>=3.9",
     "joblib>=1.5.2",
     "numpy>=2.2",
-    "parquool>=0.0.5",
+    "parquool>=0.0.6",
     "matplotlib>=3.9",
     "openpyxl>=3.0",
     "quool>=7.0.11",
