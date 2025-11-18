@@ -636,8 +636,8 @@ class Evaluator:
         self.sorted_factor_return = pd.concat(
             [
                 (
-                    sgr.iloc[:, -1].groupby(level=0).sum()
-                    - sgr.iloc[:, 0].groupby(level=0).sum()
+                    sgr.dropna(axis=0, how="all").iloc[:, -1].groupby(level=0).sum()
+                    - sgr.dropna(axis=0, how="all").iloc[:, 0].groupby(level=0).sum()
                 )
                 for sgr in self.group_returns.values()
             ],
@@ -879,7 +879,9 @@ class Evaluator:
         )
         asset_returns = self._future_return(horizon, skip=skip_horizon)
         self.ic = [
-            factor.corrwith(asset_returns, axis=1, method=method).dropna(axis=0, how='all')
+            factor.corrwith(asset_returns, axis=1, method=method).dropna(
+                axis=0, how="all"
+            )
             for factor in self._factors.values()
         ]
         self.ic = pd.concat(self.ic, keys=self._names, axis=1)
@@ -935,7 +937,7 @@ class Evaluator:
         if weight is not None:
             weight = weight.reindex(index=idx, columns=cols).fillna(0.0)
 
-        dates = asset_returns.dropna(axis=0, how='all').index
+        dates = asset_returns.dropna(axis=0, how="all").index
         default = np.full(len(self._names) + int(add_intercept), np.nan)
         betas, tstats, r2vals = [], [], []
 
@@ -1400,7 +1402,9 @@ class Evaluator:
             - If factor returns are not supplied and cannot be built, contributions will be NaN.
         """
         # 1) Prepare returns and align
-        future = self._future_return(horizon, skip=skip_horizon)  # asset returns from t to t+h
+        future = self._future_return(
+            horizon, skip=skip_horizon
+        )  # asset returns from t to t+h
         # Align weights to price/returns universe
         weights = weights.reindex(index=future.index, columns=future.columns).fillna(
             0.0
