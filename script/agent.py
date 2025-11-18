@@ -32,7 +32,6 @@ def get_duckparquet_schema(table_name: str) -> str:
 
 def create(
     instruction: Literal["script", "code"] = "script",
-    session_id: str = None,
     session_db: str = ":memory:",
 ):
     """Create an agent based instance with assigned seesion_id and session_db
@@ -48,5 +47,4 @@ def create(
             f"docs/{'SCRIPT_GENERATOR' if instruction == 'script' else 'CODE_GENERATOR'}.md"
         ).read_text(encoding="utf-8"),
         session_db=session_db,
-        session_id=session_id,
     )
