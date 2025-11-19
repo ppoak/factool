@@ -371,10 +371,11 @@ class DuckParquetSource:
             ]
         )
         if df.index.nlevels == 1:
+            df_porcessed = df.copy()
             for processor in processors:
-                processed = processor(df)
+                df_porcessed = processor(df_porcessed)
             factor = pd.concat(
-                [processed.stack(), df.stack()],
+                [df.stack(), df_porcessed.stack()],
                 keys=[name, f"{name}__{names}"],
                 axis=1,
             ).reset_index(names=[self.time_col, self.code_col])
