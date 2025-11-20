@@ -451,7 +451,7 @@ class Evaluator:
         dates = asset_returns.index
 
         for name, factor in self._factors.items():
-            g_rets = []
+            g_rets = {}
             other_names = list(filter(lambda x: x != name, self._names))
             other_factors: List[pd.DataFrame] = [
                 self._factors[nm] for nm in other_names
@@ -472,15 +472,13 @@ class Evaluator:
                             f"No eligible asset on {dt} when computing group return"
                         )
                         if mode == "single" or len(other_factors) == 0:
-                            g_rets.append(
-                                pd.Series(
-                                    {f"{name}({i})": np.nan for i in range(1, n + 1)},
-                                    name=dt,
-                                )
+                            g_rets[dt] = pd.Series(
+                                {f"{name}({i})": np.nan for i in range(1, n + 1)},
+                                name=dt,
                             )
                         else:
                             # Multi-factor sorting, a DataFrame should be appended
-                            g_rets.append(
+                            g_rets[dt] = (
                                 pd.Series(
                                     {f"{name}({i})": np.nan for i in range(1, n + 1)},
                                     name=dt,
@@ -496,7 +494,7 @@ class Evaluator:
                         )
                         g_t = self._qcut_groups(f_t.where(eligible), n)
                         if g_t.notna().sum() == 0:
-                            g_rets.append(g_ret)
+                            g_rets[dt] = g_ret
                             continue
                         uniq = sorted(pd.unique(g_t.dropna().astype(int)))
                         for gi in uniq:
@@ -504,7 +502,7 @@ class Evaluator:
                             g_ret[f"{name}({gi})"] = self._group_return(
                                 r_t.where(mask & eligible), w_t.where(mask & eligible)
                             )
-                        g_rets.append(g_ret)
+                        g_rets[dt] = g_ret
                         continue
 
                     # Independent bucketing (global groups)
@@ -531,7 +529,7 @@ class Evaluator:
                             eligible & keys_df.notna().all(axis=1) & g_t_global.notna()
                         )
                         if valid.sum() == 0:
-                            g_rets.append(g_ret)
+                            g_rets[dt] = g_ret
                             continue
 
                         tmp = keys_df[valid].copy()
@@ -570,7 +568,7 @@ class Evaluator:
                         # Aggregate group returns for reporting (equal/count)
                         g_ret = pd.DataFrame(bucket_results)
                         g_ret.columns = [f"{name}({i})" for i in range(1, n + 1)]
-                        g_rets.append(g_ret)
+                        g_rets[dt] = g_ret
                         continue
 
                     elif mode == "conditional":
@@ -620,17 +618,19 @@ class Evaluator:
                                 sub_group_ret[f"{name}({gi})"] = ret_g
                             bucket_results.append(sub_group_ret)
                         g_ret = pd.concat(bucket_results, axis=1).T
-                        g_rets.append(g_ret)
+                        g_rets[dt] = g_ret
 
                 except Exception as e:
                     self._logger.error(f"get_group_returns error on {dt}: {e}")
 
             self.group_returns[name] = pd.concat(
-                g_rets, keys=dates, axis=int(isinstance(g_rets[0], pd.Series))
+                g_rets.values(),
+                keys=g_rets.keys(),
+                axis=int(isinstance(g_rets[dt], pd.Series)),
             ).dropna(how="all", axis=1)
             self.group_returns[name] = (
                 self.group_returns[name].T
-                if isinstance(g_rets[0], pd.Series)
+                if isinstance(g_rets[dt], pd.Series)
                 else self.group_returns[name]
             )
         self.sorted_factor_return = pd.concat(
@@ -653,7 +653,6 @@ class Evaluator:
     def time_series_regression(
         self,
         horizon: Optional[int] = 1,
-        skip_horizon: bool = True,
         rolling: bool = False,
         window: int = 252,
         min_obs: int = 60,
@@ -672,7 +671,6 @@ class Evaluator:
 
         Args:
             horizon: Return horizon for dependent variable when asset_returns is None.
-            skip_horizon: Whtere to skip the horizon in the weights DataFrame.
             other_factor_returns: Optional DataFrame of factor returns (dates x K). If None,
                 uses the constructed HL factor (sorted_factor_return) if available.
             rolling: Whether to perform rolling regression (single factor only).
@@ -699,7 +697,7 @@ class Evaluator:
         self._logger.debug(
             f"Apply {'future' if horizon > 0 else 'past'} {abs(horizon)} day return for time series regression"
         )
-        asset_returns = self._future_return(horizon, skip=skip_horizon)
+        asset_returns = self._future_return(horizon, skip=False)
 
         # Prepare factor returns
         if not (
@@ -803,7 +801,6 @@ class Evaluator:
     def get_factor_exposure(
         self,
         horizon: int = 1,
-        skip_horizon: bool = True,
         feasible: Optional[pd.DataFrame] = None,
         window: int = 252,
         min_obs: int = 60,
@@ -818,7 +815,6 @@ class Evaluator:
 
         Args:
             horizon: Return horizon for the dependent variable.
-            skip_horizon: Whtere to skip the horizon in the weights DataFrame.
             feasible: Optional eligibility DataFrame for masking asset returns.
             window: Rolling window size for time-series regression.
             min_obs: Minimum valid observations in a window to compute regression.
@@ -844,7 +840,6 @@ class Evaluator:
         # Delegate to the unified time_series_regression (rolling single-factor)
         self.time_series_regression(
             horizon=horizon,
-            skip_horizon=skip_horizon,
             rolling=True,
             window=window,
             min_obs=min_obs,
@@ -928,6 +923,10 @@ class Evaluator:
         )
         asset_returns = self._future_return(horizon, skip=skip_horizon)
         idx, cols = asset_returns.index, asset_returns.columns
+        for fct in self._factors.values():
+            idx = idx.intersection(fct.index)
+            cols = cols.intersection(fct.columns)
+        asset_returns = asset_returns.loc[idx, cols]
 
         feasible = (
             feasible.reindex(index=idx, columns=cols).fillna(False)
