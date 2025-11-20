@@ -998,7 +998,7 @@ class Evaluator:
             r2vals.append(r2)
 
         self.factor_premia = pd.concat(betas, keys=dates, axis=1).T
-        self.factor_premia_t = pd.concat(tstats, keys=dates, axis=1).T.add_suffix("-t")
+        self.factor_premia_t = pd.concat(tstats, keys=dates, axis=1).T
         self.factor_r2 = pd.Series(r2vals, index=dates, name="R2_CS")
         self._logger.info(
             f"Cross-sectional regression completed (horizon={horizon}, add_intercept={add_intercept}, cov_type={cov_type})"
