@@ -805,7 +805,7 @@ class Evaluator:
         window: int = 252,
         min_obs: int = 60,
         intercept: bool = True,
-        n_jobs: int = -1,
+        n_jobs: int = 1,
     ) -> "Evaluator":
         """Rolling time-series regression: asset returns vs. constructed HL factor.
 
