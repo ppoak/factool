@@ -119,7 +119,7 @@ class DuckParquetSource(DuckParquet):
             where=f"{self.time_col} >= '{begin}' AND {self.time_col} <= '{end}'"
             + (f"AND {where}" if where else ""),
             order_by=self.time_col,
-        ).set_index(self.time_col)
+        )
         data.attrs["name"] = name
         return data
 
