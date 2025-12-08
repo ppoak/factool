@@ -10,23 +10,23 @@
 
 ## Dependencies
 
-factool模块是专门为该项目编写的，以 `DuckParquet`为数据底座的因子分析库，派生出子类 `DuckParquetSource`。factool包含三个主要类可供对外使用，分别为 `DuckParquetSource`、`Operator`、`Evaluator`；他们都可以直接从factool工具库中直接import，分别对应于数据读取、存储需求，因子操作计算需求以及因子评估需求。
+factool模块是专门为该项目编写的，以 `DuckPQ`为数据底座的因子分析库，派生出子类 `DuckPQSource`。factool包含三个主要类可供对外使用，分别为 `DuckPQSource`、`Operator`、`Evaluator`；他们都可以直接从factool工具库中直接import，分别对应于数据读取、存储需求，因子操作计算需求以及因子评估需求。
 
-- DuckParquet数据库本质是以DuckDB作为操作引擎，Parquet文件为底层存储的一组Paruqet文件目录。按照hive分区风格存储在磁盘中，分区列为date。
-- 目前可以直接用于因子计算的数据表有quotes_day、quotes_min、financial_report，路径分别对应环境变量中的 QUOTESDAY_PATH、QUOTESMIN_PATH、FINANCIALREPORT_PATH。
-- DuckParquetSource提供了select方法，这个方法提供了columns、where、params、group_by、having、order_by、limit、offset、distinct参数，用于精细化的控制构造的SQL语句。
-- DuckParquetSource提供了raw_query方法，这个方法可以获取原生SQL语句的执行结果，SQL语句中的表名，和前述表名保持一致，返回DataFrame或PyDuckDBConnection。
-- DuckParquetSource提供了get_factor方法，该方法提供name参数，需传入列名字段；where参数，需传入SQL查询条件语句；begin与end参数，传入查询时间范围。返回值为以datetime索引的宽表，列为股票代码。
+- DuckPQ数据库本质是以DuckDB作为操作引擎，Parquet文件为底层存储的一组Paruqet文件目录。按照hive分区风格存储在磁盘中，分区列为date。
+- 目前可以直接用于因子计算的数据表有quotes_day、quotes_min、financial_report，在使用query接口进行查询之前，需要使用register接口先将表名注册。
+- DuckPQ提供了query方法，这个方法可以获取原生SQL语句的执行结果，SQL语句中的表名，和前述表名保持一致，返回DataFrame。
+- DuckPQ提供了get_factor方法，该方法提供table参数，指明查询的表格；name参数，需传入列名字段；where参数，需传入SQL查询条件语句；begin与end参数，传入查询时间范围。返回值为以datetime索引的宽表，列为股票代码。
 
 ## Data Structure
 
-- 数据源均可使用DuckParquetSource通过SQL语句读取、计算。
-- 对于quotes_day和quotes_min数据，是以 `date`列与 `code`列作为联合主键的，有基本行情列（OHLCV）及衍生数据。用户计算时需提供。
-- 对于financial_report数据，是以 `date`列、`code`列与 `account_name`作为联合主键的，包含三列数值列 `ttm`、`lyr`与 `mrq`。财报仅在该股发布财报日有数据，因此，计算出的数据时点是稀疏的，需要通过和日收盘价时间点对齐并前向填充缺失值，才可获取PIT的财报指标。
+- 数据源均可使用 `DuckPQSource`通过SQL语句读取、计算。数据源初始化时，直接获取环境变量 `DATASET_PATH`作为 `DuckPQSouce`的初始化参数，即可获取数据库实例。
+- 对于quotes_day表和quotes_min表数据，是以 `date`列与 `code`列作为联合主键的，有基本行情列（OHLCV）及衍生数据。用户计算时需提供。
+- 对于financial_report表数据，是以 `date`列、`code`列与 `account_name`作为联合主键的，包含三列数值列 `ttm`、`lyr`与 `mrq`。财报仅在该股发布财报日有数据，因此，计算出的数据时点是稀疏的，需要通过和日收盘价时间点对齐并前向填充缺失值，才可获取PIT的财报指标。
 
 ## Best Practice
 
 - 考虑到执行效率，所有因子计算都尽可能在DuckDB内部通过SQL完成后再返回的计算结果。
-- 考虑到内存限制，切勿直接将大量分钟行情数据读入内存。
-- 对于复杂任务，你需要尽可能拆解步骤，尽可能将问题转化为能够使用DuckDB引擎计算得出结果的子问题，通过SQL语句将结果存为视图；尽可能减少数据IO，提升因子计算速度。
+- 考虑到内存限制，切勿直接将大量分钟行情数据读入内存。永远不要使用不加 `WHERE`限制条件的SQL查询分钟表；一次查询或计算的最佳时间范围为1个月。
+- 对于分钟数据的最佳实践是使用SQL按月计算因子值，再针对每个月并行计算。
+- 对于复杂任务，你需要尽可能拆解步骤，尽可能将问题转化为能够使用DuckDB引擎计算得出结果的子问题，通过SQL语句将结果存为视图；尽可能减少数据IO、减少pandas计算，提升因子计算速度。
 - 对于复杂任务且无法通过SQL计算，最后才考虑使用读取数据后使用pandas计算的方式。

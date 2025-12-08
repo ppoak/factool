@@ -3,14 +3,14 @@ from typing import Union, Literal
 
 import pandas as pd
 
-from parquool import DuckParquet
+from parquool import DuckPQ
 
 from .oprator import Operator
 
 
-class DuckParquetSource(DuckParquet):
+class DuckPQSource(DuckPQ):
     """
-    High-level data source wrapper around parquool.DuckParquet for storing and retrieving
+    High-level data source wrapper around parquool.DuckPQ for storing and retrieving
     time-series factor data keyed by a time column and a code column.
 
     This class provides utilities to:
@@ -21,8 +21,8 @@ class DuckParquetSource(DuckParquet):
     - Save original and processed factor values back to the dataset via upsert, partitioned by date.
 
     Args:
-        dataset_path (str): Path to a Parquet dataset directory or file to be managed
-            by DuckParquet.
+        root_path (str): Path to a Parquet dataset directory or file to be managed
+            by DuckPQ.
         time_col (str): Name of the time column used throughout queries and pivots.
             Defaults to "date".
         code_col (str): Name of the entity identifier column. Defaults to "code".
@@ -39,24 +39,19 @@ class DuckParquetSource(DuckParquet):
 
     def __init__(
         self,
-        dataset_path: str,
-        create: bool = True,
+        root_path: str,
         time_col: str = "date",
         code_col: str = "code",
-        name: str = None,
-        db_path: str = None,
         threads: int = 4,
     ) -> None:
-        """Initialize a DuckParquetSource for factor data backed by a Parquet dataset.
+        """Initialize a DuckPQSource for factor data backed by a Parquet dataset.
 
         Args:
-            dataset_path (str): Path to the Parquet dataset to manage.
+            root_path (str): Path to the Parquet dataset to manage.
             time_col (str): Name of the time column (e.g., "date", "datetime").
                 Defaults to "date".
             code_col (str): Name of the code/identifier column. Defaults to "code".
             name (Optional[str]): Optional logical name for the dataset in DuckDB.
-            db_path (Optional[str]): Optional path to a DuckDB database used by the backend.
-                If None, an in-memory database may be used.
             threads (int): Number of threads used by DuckDB operations. Defaults to 4.
 
         Returns:
@@ -66,12 +61,13 @@ class DuckParquetSource(DuckParquet):
             - No data is read at construction time.
             - The provided column names are used in later queries and pivots.
         """
-        super().__init__(dataset_path, name, create, db_path, threads)
+        super().__init__(root_path=root_path, threads=threads)
         self.time_col = time_col
         self.code_col = code_col
 
     def get_factor(
         self,
+        table: str,
         name: str,
         where: str = None,
         begin: Union[pd.Timestamp, str] = None,
@@ -86,6 +82,7 @@ class DuckParquetSource(DuckParquet):
         - The cell values are the factor values for (time, code) pairs.
 
         Args:
+            table (str): Name of the factor table.
             name (str): Name of the factor column to retrieve.
             where (str): The sql condition filter for filtering certain range
             begin (Union[pandas.Timestamp, str, None]): Inclusive lower bound for the time range.
@@ -112,19 +109,20 @@ class DuckParquetSource(DuckParquet):
 
         begin = pd.to_datetime(begin or "2000-01-01")
         end = pd.to_datetime(end or "now")
-        data = self.ppivot(
-            index=self.time_col,
-            columns=self.code_col,
-            values=name,
+        data = self.select(
+            table=table,
+            columns=[self.code_col, self.time_col, name],
             where=f"{self.time_col} >= '{begin}' AND {self.time_col} <= '{end}'"
             + (f"AND {where}" if where else ""),
             order_by=self.time_col,
         )
+        data.pivot(index=self.time_col, columns=self.code_col, values=name)
         data.attrs["name"] = name
         return data
 
     def save(
         self,
+        table_name: str,
         df: pd.DataFrame,
         processors: list[callable] = None,
     ):
@@ -152,6 +150,7 @@ class DuckParquetSource(DuckParquet):
         - Data is partitioned by the 'date' column to optimize storage and retrieval.
 
         Args:
+            table_name (str): The table name of the factor.
             df (pandas.DataFrame): Input factor data in long format as described above.
                 The time index must be datetime-like to allow date partitioning.
             processors (Optional[list[callable]]): List of processing functions applied to the wide
@@ -214,6 +213,9 @@ class DuckParquetSource(DuckParquet):
             )
 
         factor["date"] = factor[self.time_col].dt.strftime("%Y-%m-%d")
-        self.upsert_from_df(
-            factor, keys=[self.time_col, self.code_col], partition_by=["date"]
+        self.upsert(
+            table_name,
+            factor,
+            keys=[self.time_col, self.code_col],
+            partition_by=["date"],
         )

@@ -628,7 +628,7 @@ requires-dist = [
     { name = "numpy", specifier = ">=2.2" },
     { name = "openpyxl", specifier = ">=3.0" },
     { name = "pandas", specifier = ">=2.3.2" },
-    { name = "parquool", specifier = ">=0.0.8" },
+    { name = "parquool", specifier = ">=0.0.9" },
     { name = "quool", specifier = ">=7.0.11" },
     { name = "scipy", specifier = ">=1.16.3" },
     { name = "statsmodels", specifier = ">=0.14.5" },
@@ -1709,7 +1709,7 @@ wheels = [
 
 [[package]]
 name = "parquool"
-version = "0.0.8"
+version = "0.0.9"
 source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }
 dependencies = [
     { name = "dotenv" },
@@ -1722,9 +1722,9 @@ dependencies = [
     { name = "requests" },
     { name = "retry" },
 ]
-sdist = { url = "https://pypi.tuna.tsinghua.edu.cn/packages/da/b2/05f4ab94b4619539839c3a9326877a03fc1045a7d867fbffd169447a2dfa/parquool-0.0.8.tar.gz", hash = "sha256:a6ca8fd8eeaec3db7bc7d41fe024d21323f227b96a69547278e878de5b155387", size = 41445, upload-time = "2025-11-15T13:13:27.001Z" }
+sdist = { url = "https://pypi.tuna.tsinghua.edu.cn/packages/c7/93/64e83a6c27bf1bc78163d23469741f73e0a67bb0085f3c26160ae467a0d4/parquool-0.0.9.tar.gz", hash = "sha256:884afa3a8cdd3c22b9cc75496885d5efe8ed829db414529a5dc2e65723eba3e3", size = 41995, upload-time = "2025-12-07T09:03:39.4Z" }
 wheels = [
-    { url = "https://pypi.tuna.tsinghua.edu.cn/packages/bf/4e/1f139ee70905b1ad1553fabb0e927b7bf4f4cc71adff3ca9b3261d8fafc5/parquool-0.0.8-py3-none-any.whl", hash = "sha256:d418c5217d0c27a3299ae21bff321abc21537f5c34dddeec047b0cc18be06cb7", size = 38626, upload-time = "2025-11-15T13:13:25.896Z" },
+    { url = "https://pypi.tuna.tsinghua.edu.cn/packages/fb/7b/eb3ad25ceaed914d6a0dbb9ba72f28836d56c7275f78cfe8a8776bd813c9/parquool-0.0.9-py3-none-any.whl", hash = "sha256:1707326e828e7d74f02b85eccc7bbb10159c1182722a2623fa7a25aa8639697e", size = 39218, upload-time = "2025-12-07T09:03:40.481Z" },
 ]
 
 [[package]]

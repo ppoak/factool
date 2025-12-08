@@ -1,5 +1,5 @@
 from .storage import (
-    DuckParquetSource,
+    DuckPQSource,
 )
 
 from .oprator import (
