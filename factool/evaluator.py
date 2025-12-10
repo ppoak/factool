@@ -626,11 +626,11 @@ class Evaluator:
             self.group_returns[name] = pd.concat(
                 g_rets.values(),
                 keys=g_rets.keys(),
-                axis=int(isinstance(g_rets[dt], pd.Series)),
+                axis=int(isinstance(g_rets[list(g_rets.keys())[0]], pd.Series)),
             ).dropna(how="all", axis=1)
             self.group_returns[name] = (
                 self.group_returns[name].T
-                if isinstance(g_rets[dt], pd.Series)
+                if isinstance(g_rets[list(g_rets.keys())[0]], pd.Series)
                 else self.group_returns[name]
             )
         self.sorted_factor_return = pd.concat(

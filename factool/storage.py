@@ -116,7 +116,7 @@ class DuckPQSource(DuckPQ):
             + (f"AND {where}" if where else ""),
             order_by=self.time_col,
         )
-        data.pivot(index=self.time_col, columns=self.code_col, values=name)
+        data = data.pivot(index=self.time_col, columns=self.code_col, values=name)
         data.attrs["name"] = name
         return data
 
