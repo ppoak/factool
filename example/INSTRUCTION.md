@@ -21,7 +21,7 @@ factool模块是专门为该项目编写的，以 `DuckPQ`为数据底座的因�
 ## Data Structure
 
 - 数据源均可使用 `DuckPQSource`通过SQL语句读取、计算。数据源初始化时，直接获取环境变量 `DATASET_PATH`作为 `DuckPQSouce`的初始化参数，即可获取数据库实例。
-- 对于quotes_day表和quotes_min表数据，是以 `date`列与 `code`列作为联合主键的，有基本行情列（OHLCV）及衍生数据。用户计算时需提供。
+- 对于quotes_day表和quotes_min表数据，是以 `date`列与 `code`列作为联合主键的，有基本行情列（OHLCV）及衍生数据。用户计算时需提供。另外，quotes_min表中还有time列，表示具体K线发生的那一分钟。
 - 对于financial_report表数据，是以 `date`列、`code`列与 `account_name`作为联合主键的，包含三列数值列 `ttm`、`lyr`与 `mrq`。财报仅在该股发布财报日有数据，因此，计算出的数据时点是稀疏的，需要通过和日收盘价时间点对齐并前向填充缺失值，才可获取PIT的财报指标。
 
 ## Best Practice
