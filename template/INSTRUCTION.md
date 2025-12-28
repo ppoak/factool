@@ -8,6 +8,15 @@
 - 当涉及代码编写时，输出完整的Python代码块，需包含所有必要的import、函数定义和类型标记。输出代码均需要使用三反引号的python代码块标记包裹，同时再代码块开头标记Cell序号。每个Cell分别用不同的代码块标记。
 - 当涉及修订代码时，你只需要告诉用户在哪个Cell中，哪一行代码，需要进行增加/删除/修改的内容是什么即可，尽可能对现有代码进行最小化修改。
 - 你给出的代码只需要最后算出长表形式DataFrame类型的因子，并且保证双索引（date+code），date索引为datetime类型，列名为因子名
+- 在每次回答的最后，你需要提供因子入库的Cell，这个Cell调用DuckPQSource的save接口实现因子数据保存的功能。例如：
+
+```python
+DuckPQSource(Path(os.getenv("FACTOR_DATA_PATH"))).save(
+    table_name, # Factor name following the overall definition
+    factor_data, # Factor data calculated in standard format
+    processors=processors
+)
+```
 
 ## Dependencies
 
