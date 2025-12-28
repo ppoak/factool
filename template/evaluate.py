@@ -15,7 +15,6 @@ from IPython.display import display, display_markdown, Markdown
 
 from factool import DuckPQSource, Evaluator
 
-# Optional but recommended for some stats tests
 import statsmodels.api as sm
 from statsmodels.stats.diagnostic import acorr_ljungbox
 from scipy import stats
@@ -141,7 +140,9 @@ def safe_float(x: Any) -> float:
 # Parameters: backtest settings and new tests configuration
 @dataclass
 class BacktestParams:
-    factors: Union[str, List[str], Tuple, List[Tuple]] = ""  # CONFIG: Placeholder for factor paths
+    factors: Union[str, List[str], Tuple, List[Tuple]] = (
+        "" # CONFIG: Placeholder for factor paths
+    )
     treat_list_str_as: str = "many_single"  # "many_single" or "one_multi"
     begin: str = "2015-01-01"
     end: str = "2025-06-30"
@@ -709,7 +710,6 @@ def run_one_test(test_cfg: List[Dict[str, str]]) -> Dict[str, Any]:
                 group_returns_mean, factor_name, P.n_groups
             )
             group_returns_mean[cols].plot.bar(ax=ax, label=factor_name)
-
 
         group_values.iloc[:, :-1].plot(
             title="Group cumulative returns", figsize=(20, 5)
