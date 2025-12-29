@@ -141,7 +141,7 @@ def safe_float(x: Any) -> float:
 @dataclass
 class BacktestParams:
     factors: Union[str, List[str], Tuple, List[Tuple]] = (
-        "" # CONFIG: Placeholder for factor paths
+        ""  # CONFIG: Placeholder for factor paths
     )
     treat_list_str_as: str = "many_single"  # "many_single" or "one_multi"
     begin: str = "2015-01-01"
@@ -248,14 +248,13 @@ def load_factor_df(factor_path: str) -> pd.DataFrame:
 def load_factors_for_one_test(test_cfg: List[Dict[str, str]]) -> List[pd.DataFrame]:
     dfs: List[pd.DataFrame] = []
     for c in test_cfg:
-        dfs.append(
-            factor_source.get_factor(
-                table=c["table_name"],
-                name=c["factor_name"],
-                begin=P.begin,
-                end=P.end,
-            ).sort_index()
-        )
+        df = factor_source.get_factor(
+            table=c["table_name"],
+            name=c["factor_name"],
+            begin=P.begin,
+            end=P.end,
+        ).sort_index()
+        dfs.append(df)
     return dfs
 
 
@@ -625,7 +624,7 @@ def run_one_test(test_cfg: List[Dict[str, str]]) -> Dict[str, Any]:
         coverage = aligned.count(axis=1) / price.count(axis=1)
         cov_res[factor_name] = safe_float(coverage.mean())
         if P.plot:
-            coverage.plot(title=f"Coverage of {factor_name}", figsize=(20, 4))
+            coverage.plot(title=f"Coverage of {factor_name}", figsize=(20, 10))
     res["coverage"] = pd.Series(cov_res, name="coverage")
 
     # IC and IC tests
@@ -658,8 +657,8 @@ def run_one_test(test_cfg: List[Dict[str, str]]) -> Dict[str, Any]:
             secondary_y=[c for c in (ic_df.columns + " cumsum")],
             title="IC diagnostics",
         )
-        ic_df.resample("YE").mean().plot.bar(figsize=(20, 4), title="Yearly IC mean")
-        ic_df.resample("ME").mean().plot.bar(figsize=(35, 4), title="Monthly IC mean")
+        ic_df.resample("YE").mean().plot.bar(figsize=(20, 10), title="Yearly IC mean")
+        ic_df.resample("ME").mean().plot.bar(figsize=(35, 10), title="Monthly IC mean")
 
     # Group returns
     e.get_group_returns(
@@ -704,7 +703,7 @@ def run_one_test(test_cfg: List[Dict[str, str]]) -> Dict[str, Any]:
     res["monotonicity"] = pd.DataFrame(mono_rows)
 
     if P.plot:
-        fig, ax = plt.subplots(figsize=(20, 4))
+        fig, ax = plt.subplots(figsize=(20, 10))
         for factor_name in factor_names:
             cols = _extract_factor_group_columns(
                 group_returns_mean, factor_name, P.n_groups
