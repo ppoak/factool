@@ -653,7 +653,7 @@ def run_one_test(test_cfg: List[Dict[str, str]]) -> Dict[str, Any]:
             ],
             axis=1,
         ).plot(
-            figsize=(20, 5),
+            figsize=(20, 10),
             secondary_y=[c for c in (ic_df.columns + " cumsum")],
             title="IC diagnostics",
         )
@@ -711,7 +711,7 @@ def run_one_test(test_cfg: List[Dict[str, str]]) -> Dict[str, Any]:
             group_returns_mean[cols].plot.bar(ax=ax, label=factor_name)
 
         group_values.iloc[:, :-1].plot(
-            title="Group cumulative returns", figsize=(20, 5)
+            title="Group cumulative returns", figsize=(20, 10)
         )
 
         ax.set_title("Group mean returns (combined)")
