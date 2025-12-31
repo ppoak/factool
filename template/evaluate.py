@@ -178,14 +178,16 @@ class BacktestParams:
     incremental_rolling_corr_window: int = 120
 
     # Output
-    output_dir: str = "../out"
-    output_excel_name: str = "factor_test.xlsx"
+    output_path: str = "factor_test.xlsx"
 
     # Plot
     plot: bool = True
 
 
-P = BacktestParams()
+P = BacktestParams(
+    factors="barra_table/barra_momentum", # CONFIG: Placeholder for factor paths
+    output_path="barra_momentum_h5.xlsx", # CONFIG: Placeholder for output path
+)
 
 DATASET_PATH = os.getenv("DATASET_PATH")
 FACTOR_DATA_PATH = os.getenv("FACTOR_DATA_PATH")
@@ -195,7 +197,7 @@ if not DATASET_PATH or not FACTOR_DATA_PATH:
         "Please set them (e.g. in .env) before running."
     )
 
-Path(P.output_dir).mkdir(parents=True, exist_ok=True)
+Path(P.output_path).parent.mkdir(parents=True, exist_ok=True)
 
 # %%
 # Data preparation: load price and feasible trading mask from dataset
@@ -922,7 +924,7 @@ display(summary_df)
 
 # %%
 # Excel persistence: write only summary sheet and (optional) baseline-corr details
-output_path = Path(P.output_dir) / P.output_excel_name
+output_path = Path(P.output_path)
 
 with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
     summary_df.to_excel(writer, sheet_name="summary", index=False)
