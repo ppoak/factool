@@ -16,12 +16,22 @@
 # %% Cell 1
 # One-line descriptions for this cell
 # Some detailed description follows ...
+from dotenv import load_dotenv
 from factool import DuckParquetSource
+
+load_dotenv()
+
+DATASET_PATH = os.getenv("DATASET_PATH")
+source = DuckParquetSource(DATASET_PATH)
+source.register(...)
 
 # %% Cell 2
 # One-line descriptions for this cell
 # Some detailed description follows ...
 sql = ...
+# or sql_template_for_month = "..."
+source.query(sql)
+# or for begin, end in months: source.query(sql_template_for_month)
 
 ...
 

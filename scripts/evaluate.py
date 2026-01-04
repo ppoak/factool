@@ -14,6 +14,7 @@ import quool
 from IPython.display import display, display_markdown, Markdown
 
 from factool import DuckPQSource, Evaluator
+from tools import parse_factor_path
 
 import statsmodels.api as sm
 from statsmodels.stats.diagnostic import acorr_ljungbox
@@ -35,18 +36,6 @@ MultiTestSpec = Union[
     List[FactorPath],  # multiple single-factor tests OR one multi-factor test
     List[Tuple[FactorPath, ...]],  # multiple multi-factor tests
 ]
-
-
-def parse_factor_path(path: str, sep: str = "/") -> Tuple[str, str]:
-    if not isinstance(path, str):
-        raise TypeError(f"factor path must be str, got {type(path)}: {path}")
-    s = path.strip()
-    if not s:
-        raise ValueError("empty factor path")
-    parts = s.split(sep)
-    if len(parts) != 2 or not parts[0] or not parts[1]:
-        raise ValueError(f"invalid factor path: {path!r}, expected 'table{sep}factor'")
-    return parts[0], parts[1]
 
 
 def normalize_tests(
