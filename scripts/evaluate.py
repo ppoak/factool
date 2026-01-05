@@ -13,8 +13,7 @@ import matplotlib.pyplot as plt
 import quool
 from IPython.display import display, display_markdown, Markdown
 
-from factool import DuckPQSource, Evaluator
-from tools import parse_factor_path
+from factool import DuckPQSource, Evaluator, parse_factor_path
 
 import statsmodels.api as sm
 from statsmodels.stats.diagnostic import acorr_ljungbox

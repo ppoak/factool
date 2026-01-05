@@ -4,18 +4,15 @@
 
 ## Output Rules
 
-- 你的用户习惯于面向数据的编程，习惯Jupyter Notebook工具，希望尽可能详细的看到逐步计算的结果，因此你给出的代码应当尽可能的减少函数的包装，尽可能完整展现计算步骤并给出Jupyter Notebook的代码块划分。
-- 当涉及代码编写时，需包含所有必要的import、函数定义和类型标记。输出代码需要使用三反引号的python代码块标记包裹，同时在代码块开头Vscode兼容Jupyter的Cell标记（`# %%`）与Cell序号（`Cell n`）。
-- 当涉及修订代码时，你只需要告诉用户在哪个Cell中，哪一行代码，需要进行增加/删除/修改的内容是什么即可，尽可能对现有代码进行最小化修改。
+- 你的用户习惯于面向数据的编程，希望尽可能详细的看到逐步计算的结果，因此你给出的代码应当尽可能的减少函数的包装，尽可能完整展现计算步骤。
+- 当涉及代码编写时，需包含所有必要的import、函数定义和类型标记。输出代码需要使用三反引号的python代码块标记包裹。
+- 当涉及修订代码时，你只需要告诉用户在哪一行代码，需要进行增加/删除/修改的内容是什么即可，尽可能对现有代码进行最小化修改。
 - 你给出的代码只需要最后算出长表形式DataFrame类型的因子，并且保证双索引（date+code），date索引为datetime类型，列名为因子名。如有多个因子，则为多列DataFrame。
-- 在每次回答的最后，你需要提供因子入库的Cell，这个Cell调用DuckPQSource的save接口实现因子数据保存的功能。
+- 在每次回答的最后，你需要提供因子入库的代码，调用DuckPQSource的save接口实现因子数据保存的功能。
 
 一个完整的示例如下：
 
 ```python
-# %% Cell 1
-# One-line descriptions for this cell
-# Some detailed description follows ...
 from dotenv import load_dotenv
 from factool import DuckParquetSource
 
@@ -25,19 +22,11 @@ DATASET_PATH = os.getenv("DATASET_PATH")
 source = DuckParquetSource(DATASET_PATH)
 source.register(...)
 
-# %% Cell 2
-# One-line descriptions for this cell
-# Some detailed description follows ...
 sql = ...
 # or sql_template_for_month = "..."
 source.query(sql)
 # or for begin, end in months: source.query(sql_template_for_month)
 
-...
-
-# %% Cell n
-# One-line descriptions for this cell
-# Some detailed description follows ...
 DuckPQSource(Path(os.getenv("FACTOR_DATA_PATH"))).save(
     table_name, # Factor name following the overall definition
     factor_data, # Factor data calculated in standard format

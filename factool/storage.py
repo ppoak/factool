@@ -1,11 +1,23 @@
 from functools import partial
-from typing import Union, Literal
+from typing import Union, Literal, Iterable, Tuple, Dict, List, Optional
 
 import pandas as pd
 
 from parquool import DuckPQ
 
 from .oprator import Operator
+
+
+def parse_factor_path(path: str, sep: str = "/") -> Tuple[str, str]:
+    if not isinstance(path, str):
+        raise TypeError(f"factor path must be str, got {type(path)}: {path}")
+    s = path.strip()
+    if not s:
+        raise ValueError("empty factor path")
+    parts = s.split(sep)
+    if len(parts) != 2 or not parts[0] or not parts[1]:
+        raise ValueError(f"invalid factor path: {path!r}, expected 'table{sep}factor'")
+    return parts[0], parts[1]
 
 
 class DuckPQSource(DuckPQ):
@@ -65,60 +77,198 @@ class DuckPQSource(DuckPQ):
         self.time_col = time_col
         self.code_col = code_col
 
-    def get_factor(
+    def load(
         self,
-        table: str,
-        name: str,
-        where: str = None,
-        begin: Union[pd.Timestamp, str] = None,
-        end: Union[pd.Timestamp, str] = None,
+        factor_paths: Union[str, Iterable[str]],
+        begin: str,
+        end: str,
+        *,
+        sep: str = "/",
+        join: str = "full",
+        pad_begin: int = 0,
+        pad_end: int = 0,
+        base_table: Optional[str] = None,
     ) -> pd.DataFrame:
-        """
-        Load a factor column and pivot it into a time-by-code matrix for a date range.
-
-        The result is a wide DataFrame where:
-        - The index is the time column (self.time_col), sorted ascending.
-        - The columns are distinct codes (self.code_col).
-        - The cell values are the factor values for (time, code) pairs.
+        """Loads one or many factors and joins them in DuckDB.
 
         Args:
-            table (str): Name of the factor table.
-            name (str): Name of the factor column to retrieve.
-            where (str): The sql condition filter for filtering certain range
-            begin (Union[pandas.Timestamp, str, None]): Inclusive lower bound for the time range.
-                Defaults to "2000-01-01" if None.
-            end (Union[pandas.Timestamp, str, None]): Inclusive upper bound for the time range.
-                Defaults to "now" if None.
+            factor_paths: Iterable of factor paths like "table/factor".
+            begin: Begin date (inclusive), passed into SQL as a string.
+            end: End date (inclusive), passed into SQL as a string.
+            sep: Path separator used in `factor_paths`.
+            join: Join type between tables: "inner", "left", "right", or "full".
+            pad_begin: Relative to begin, pad more data (0 for no padding).
+            pad_end: Relative to end, pad more data (0 for no padding).
+            base_table: The anchor table name used as the left side of the join chain.
+                If None, the first table in `factor_paths` is used.
 
         Returns:
-            pandas.DataFrame: A pivoted DataFrame with index = self.time_col and columns = self.code_col.
-                Missing pairs will appear as NaN.
+            A pandas DataFrame indexed by ["date", "code"] with factor columns.
 
         Raises:
-            KeyError: If the specified factor column does not exist.
-            ValueError: If begin is after end or date parsing fails.
-            Exception: Propagated errors from the storage backend.
-
-        Examples:
-            >>> df = source.get_factor("close", begin="2023-01-01", end="2023-12-31")
-            >>> df.index.name
-            'date'
-            >>> df.columns[:5]
-            Index(['000001.SZ', '000002.SZ', ...], dtype='object')
+            ValueError: If inputs are invalid.
+            TypeError: If a factor path is not a string.
         """
-
-        begin = pd.to_datetime(begin or "2000-01-01")
-        end = pd.to_datetime(end or "now")
-        data = self.select(
-            table=table,
-            columns=[self.code_col, self.time_col, name],
-            where=f"{self.time_col} >= '{begin}' AND {self.time_col} <= '{end}'"
-            + (f"AND {where}" if where else ""),
-            order_by=self.time_col,
+        factor_paths = (
+            list(factor_paths) if not isinstance(factor_paths, str) else [factor_paths]
         )
-        data = data.pivot(index=self.time_col, columns=self.code_col, values=name)
-        data.attrs["name"] = name
-        return data
+        if not factor_paths:
+            raise ValueError("factor_paths is empty")
+
+        if not isinstance(pad_begin, int):
+            raise TypeError("lookback must be int")
+        if pad_begin < 0:
+            raise ValueError("lookback must be >= 0")
+
+        if not isinstance(pad_end, int):
+            raise TypeError("lookforward must be int")
+        if pad_end < 0:
+            raise ValueError("lookforward must be >= 0")
+
+        join = join.lower()
+        join_map = {
+            "inner": "INNER JOIN",
+            "left": "LEFT JOIN",
+            "right": "RIGHT JOIN",
+            "full": "FULL OUTER JOIN",
+        }
+        if join not in join_map:
+            raise ValueError(f"invalid join={join!r}, choose from {list(join_map)}")
+
+        # Parse factor paths and group requested columns by table.
+        by_table: Dict[str, List[str]] = {}
+        for p in factor_paths:
+            t, c = parse_factor_path(p, sep=sep)
+            by_table.setdefault(t, [])
+            if c not in by_table[t]:
+                by_table[t].append(c)
+
+        tables = list(by_table.keys())
+        if base_table is None:
+            base_table = tables[0]
+        if base_table not in by_table:
+            raise ValueError(
+                f"base_table {base_table!r} is not present in factor_paths tables: {tables}"
+            )
+
+        # Register all tables up front.
+        for t in tables:
+            self.register(t)
+
+        # ---- compute lookback/lookforward bounds (based on base_table calendar) ----
+        begin_for_sql = begin
+        end_for_sql = end
+
+        if pad_begin > 0:
+            sql_begin_lb = f"""
+            WITH cal AS (
+                SELECT DISTINCT CAST(date AS DATE) AS d
+                FROM {base_table}
+            ),
+            anchor AS (
+                SELECT d
+                FROM cal
+                WHERE d <= CAST('{begin}' AS DATE)
+                ORDER BY d DESC
+                LIMIT 1
+            )
+            SELECT CAST(d AS VARCHAR) AS begin_lb
+            FROM cal
+            WHERE d <= (SELECT d FROM anchor)
+            ORDER BY d DESC
+            OFFSET {pad_begin - 1}
+            LIMIT 1
+            """.strip()
+            tmp = self.query(sql_begin_lb)
+            if tmp.empty or tmp.iloc[0, 0] is None:
+                sql_min = f"""
+                SELECT CAST(MIN(CAST(date AS DATE)) AS VARCHAR) AS begin_lb
+                FROM {base_table}
+                """.strip()
+                tmp2 = self.query(sql_min)
+                begin_for_sql = tmp2.iloc[0, 0]
+            else:
+                begin_for_sql = tmp.iloc[0, 0]
+
+        if pad_end > 0:
+            sql_end_lf = f"""
+            WITH cal AS (
+                SELECT DISTINCT CAST(date AS DATE) AS d
+                FROM {base_table}
+            ),
+            anchor AS (
+                SELECT d
+                FROM cal
+                WHERE d >= CAST('{end}' AS DATE)
+                ORDER BY d ASC
+                LIMIT 1
+            )
+            SELECT CAST(d AS VARCHAR) AS end_lf
+            FROM cal
+            WHERE d >= (SELECT d FROM anchor)
+            ORDER BY d ASC
+            OFFSET {pad_end - 1}
+            LIMIT 1
+            """.strip()
+            tmp = self.query(sql_end_lf)
+            if tmp.empty or tmp.iloc[0, 0] is None:
+                sql_max = f"""
+                SELECT CAST(MAX(CAST(date AS DATE)) AS VARCHAR) AS end_lf
+                FROM {base_table}
+                """.strip()
+                tmp2 = self.query(sql_max)
+                end_for_sql = tmp2.iloc[0, 0]
+            else:
+                end_for_sql = tmp.iloc[0, 0]
+
+        def subquery(table: str) -> str:
+            cols = ", ".join(by_table[table])
+            return f"""
+                SELECT
+                    CAST(date AS TIMESTAMP) AS date,
+                    code,
+                    {cols}
+                FROM {table}
+                WHERE date >= '{begin_for_sql}' AND date <= '{end_for_sql}'
+            """.strip()
+
+        # Build a single SQL statement joining per-table subqueries.
+        base_alias = "b"
+        sql_from = f"FROM ({subquery(base_table)}) AS {base_alias}\n"
+        key_date = f"{base_alias}.date"
+        key_code = f"{base_alias}.code"
+
+        i = 0
+        for t in tables:
+            if t == base_table:
+                continue
+            i += 1
+            a = f"t{i}"
+            sql_from += (
+                f"{join_map[join]} ({subquery(t)}) AS {a}\n"
+                f"ON {a}.date = {key_date} AND {a}.code = {key_code}\n"
+            )
+            if join == "full":
+                key_date = f"COALESCE({key_date}, {a}.date)"
+                key_code = f"COALESCE({key_code}, {a}.code)"
+
+        select_cols: List[str] = [f"{key_date} AS date", f"{key_code} AS code"]
+        for c in by_table[base_table]:
+            select_cols.append(f"{base_alias}.{c} AS {c}")
+        i = 0
+        for t in tables:
+            if t == base_table:
+                continue
+            i += 1
+            a = f"t{i}"
+            for c in by_table[t]:
+                select_cols.append(f"{a}.{c} AS {c}")
+
+        sql = "SELECT\n    " + ",\n    ".join(select_cols) + "\n" + sql_from
+        df = self.query(sql)
+        df["date"] = pd.to_datetime(df["date"])
+        df = df.set_index(["date", "code"]).sort_index()
+        return df
 
     def save(
         self,
