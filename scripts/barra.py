@@ -205,11 +205,15 @@ class BarraComposer(Composer):
             pad_begin=config.window - 1,
         )
         self.industry = industry
+        self.logger = setup_logger("BarraComposer")
 
     def load_X(self):
         style_exposures = []
         for name, cfg in self.config.factor_paths.items():
             iccomp = ICComposer(source=self.source, config=cfg).run()
+            self.logger.info(
+                f"Loaded {name} factor, from {iccomp.index.levels[0].min()} to {iccomp.index.levels[0].min()}"
+            )
             iccomp.columns = [name]
             style_exposures.append(iccomp)
         style_exposures = pd.concat(style_exposures, axis=1)
@@ -223,11 +227,7 @@ class BarraComposer(Composer):
         drop_industry_rule: Literal["max_cap", "first"] = "max_cap",
         progress: bool = True,
         progress_every: int = 20,
-        logger: Optional[logging.Logger] = None,
     ):
-        if logger is None:
-            logger = setup_logger("barra_cs_regression")
-
         factor_returns: List[pd.Series] = []
         specific_returns = pd.Series(index=y.index, dtype=float)
 
@@ -240,14 +240,14 @@ class BarraComposer(Composer):
             rdf = reg_df.loc[dt]
 
             if progress and (di == 1 or di % progress_every == 0 or di == n_dates):
-                logger.info("barra_cs_regression %s (%d/%d)", dt, di, n_dates)
+                self.logger.info("barra_cs_regression %s (%d/%d)", dt, di, n_dates)
 
             # y
             y = rdf.iloc[:, 0].astype(float)
             codes = y.index
             if len(codes) < 100:
                 if progress:
-                    logger.info("  skip %s: too few stocks (%d)", dt, len(codes))
+                    self.logger.info("  skip %s: too few stocks (%d)", dt, len(codes))
                 factor_returns.append(pd.Series(name=dt, dtype=float))
                 continue
 
@@ -289,7 +289,7 @@ class BarraComposer(Composer):
             # Basic sufficiency check
             if yv.shape[0] < 20:
                 if progress:
-                    logger.info(
+                    self.logger.info(
                         "  skip %s: too few valid rows (%d)", dt, int(yv.shape[0])
                     )
                 factor_returns.append(pd.Series(name=dt, dtype=float))
@@ -314,7 +314,7 @@ class BarraComposer(Composer):
                 n_params = Xreg.shape[1]
                 if Xreg.shape[0] < max(20, n_params + 5):
                     if progress:
-                        logger.info("  skip %s: insufficient rows vs params", dt)
+                        self.logger.info("  skip %s: insufficient rows vs params", dt)
                     factor_returns.append(pd.Series(name=dt, dtype=float))
                     continue
 
@@ -346,7 +346,7 @@ class BarraComposer(Composer):
             n_params = Xreg.shape[1]
             if Xreg.shape[0] < max(20, n_params + 5):
                 if progress:
-                    logger.info(
+                    self.logger.info(
                         "  skip %s: insufficient valid rows (%d) vs params (%d)",
                         dt,
                         int(Xreg.shape[0]),
@@ -360,7 +360,7 @@ class BarraComposer(Composer):
                 fit = sm.WLS(yv.values, Xreg.values, weights=wv).fit()
             except Exception as e:
                 if progress:
-                    logger.exception("  regression failed %s: %s", dt, e)
+                    self.logger.exception("  regression failed %s: %s", dt, e)
                 factor_returns.append(pd.Series(name=dt, dtype=float))
                 continue
 
@@ -427,7 +427,6 @@ class BarraComposer(Composer):
         drop_industry_rule: Literal["max_cap", "first"] = "max_cap",
         progress: bool = True,
         progress_every: int = 20,
-        logger: Optional[logging.Logger] = None,
     ):
         X = self.load_X()
         y = self.load_y()
@@ -440,9 +439,10 @@ class BarraComposer(Composer):
             drop_industry_rule=drop_industry_rule,
             progress=progress,
             progress_every=progress_every,
-            logger=logger,
         )
         out = self.postprocess(out)
+        self.style_exposure = X
+        self.future_return = y
         self.info = {
             "begin": self.config.begin,
             "end": self.config.end,
@@ -455,14 +455,15 @@ class BarraComposer(Composer):
 
 
 # Basic Variables and parameter settings
-BEGIN = "2025-01-01"
-END = "2025-06-30"
+BEGIN = "2023-01-01"
+END = "2024-03-19"
 HORIZON = 5
 WINDOW = 252
 TARGET_PATH = "target/open"
 WEIGHT_PATH = "barra_size/mcap_float_a"
 DATASET_PATH = os.getenv("DATASET_PATH")
 FACTOR_DATA_PATH = os.getenv("FACTOR_DATA_PATH")
+
 
 if not DATASET_PATH or not FACTOR_DATA_PATH:
     raise EnvironmentError(
@@ -576,8 +577,8 @@ growth_config = ICComposerConfig(
     weight_path=WEIGHT_PATH,
 )
 barra_config = BarraConfig(
-    begin="2025-01-01",
-    end="2025-06-30",
+    begin=BEGIN,
+    end=END,
     factor_paths={
         "size": size_config,
         "value": value_config,
@@ -597,10 +598,13 @@ barra_config = BarraConfig(
 
 industry = load_industry_dummies(source=ds, begin=BEGIN, end=END)
 composer = BarraComposer(fs, barra_config, industry=industry)
-composer.run(
+factor_returns = composer.run(
     min_style_coverage=0.5,
     drop_industry_rule="max_cap",
     progress=True,
     progress_every=20,
     logger=None,
 )
+style_exposure = composer.style_exposure
+style_exposure["date"] = style_exposure["date"].dt.strftime("%Y-%m-%d")
+fs.upsert("barra", style_exposure, keys=["date", "code"], partition_by=["date"])

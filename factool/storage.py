@@ -207,7 +207,7 @@ class DuckPQSource(DuckPQ):
             FROM cal
             WHERE d >= (SELECT d FROM anchor)
             ORDER BY d ASC
-            OFFSET {pad_end - 1}
+            OFFSET {pad_end}
             LIMIT 1
             """.strip()
             tmp = self.query(sql_end_lf)
