@@ -362,9 +362,6 @@ class Evaluator:
     ) -> "Evaluator":
         """
         Compute grouped portfolio returns and HL factor returns.
-
-        Notes:
-          - horizon/skip_horizon are ignored for return construction; returns are provided via future.
         """
         mode = str(mode).lower()
         if mode not in ("single", "independent", "conditional"):

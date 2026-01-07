@@ -1,6 +1,5 @@
 import os
 import dotenv
-import logging
 from pathlib import Path
 from dataclasses import dataclass
 from typing import Dict, Union, List, Optional, Tuple, Literal, Sequence
@@ -212,7 +211,7 @@ class BarraComposer(Composer):
         for name, cfg in self.config.factor_paths.items():
             iccomp = ICComposer(source=self.source, config=cfg).run()
             self.logger.info(
-                f"Loaded {name} factor, from {iccomp.index.levels[0].min()} to {iccomp.index.levels[0].min()}"
+                f"Loaded {name} factor, from {iccomp.index.levels[0].min()} to {iccomp.index.levels[0].max()}"
             )
             iccomp.columns = [name]
             style_exposures.append(iccomp)
@@ -603,8 +602,7 @@ factor_returns = composer.run(
     drop_industry_rule="max_cap",
     progress=True,
     progress_every=20,
-    logger=None,
 )
-style_exposure = composer.style_exposure
+style_exposure = composer.style_exposure.sort_index().reset_index()
 style_exposure["date"] = style_exposure["date"].dt.strftime("%Y-%m-%d")
 fs.upsert("barra", style_exposure, keys=["date", "code"], partition_by=["date"])

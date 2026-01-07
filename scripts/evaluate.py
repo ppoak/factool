@@ -8,8 +8,9 @@ import numpy as np
 import pandas as pd
 
 from openpyxl.utils import get_column_letter
-from openpyxl.chart import BarChart, LineChart, Reference
+from openpyxl.drawing.line import LineProperties
 from openpyxl.formatting.rule import ColorScaleRule
+from openpyxl.chart import BarChart, LineChart, Reference
 
 import quool
 from parquool import setup_logger
@@ -24,16 +25,6 @@ dotenv.load_dotenv()
 
 
 FactorPath = str
-OneTestSpec = Union[
-    FactorPath,  # "table/factor" (single factor)
-    List[FactorPath],  # ["t/f1","t/f2"] (multi-factor one test)
-    Tuple[FactorPath, ...],  # ("t/f1","t/f2") (multi-factor one test)
-]
-MultiTestSpec = Union[
-    OneTestSpec,
-    List[FactorPath],  # multiple single-factor tests OR one multi-factor test
-    List[Tuple[FactorPath, ...]],  # multiple multi-factor tests
-]
 
 
 def safe_float(x: Any) -> float:
@@ -47,7 +38,7 @@ def safe_float(x: Any) -> float:
         return np.nan
 
 
-def get_trade_mask(
+def get_feasible(
     data_source: DuckPQSource, begin: str, end: str, min_list_days: int = 90
 ):
     sql = f"""
@@ -60,7 +51,7 @@ def get_trade_mask(
             AND COALESCE(q.st, false) = false
             AND COALESCE(q.suspended, false) = false
             AND datediff('day', i.listed_date, q.date) > {min_list_days}
-        ) AS tradable_mask
+        ) AS feasible
     FROM quotes_day AS q
     JOIN instruments_info AS i
         ON q.code = i.code
@@ -387,47 +378,6 @@ def group_monotonicity_tests(
     }
 
 
-def pairwise_corr_and_stability(
-    test_factor: pd.DataFrame,
-    base_factor: pd.DataFrame,
-    feasible_mask: Optional[pd.DataFrame] = None,
-    roll_window: int = 120,
-) -> Dict[str, Any]:
-    """
-    Computes cross-sectional correlation between two factors per date, then summarizes:
-    - mean corr, std corr
-    - rolling mean corr std (stability)
-    """
-    f1 = test_factor
-    f2 = base_factor
-
-    if feasible_mask is not None:
-        mask = feasible_mask.reindex_like(f1).astype(bool)
-        f1 = f1.where(mask)
-        f2 = f2.where(mask)
-
-    cors = []
-    for dt in f1.index:
-        a = f1.loc[dt]
-        b = f2.loc[dt]
-        valid = a.notna() & b.notna()
-        if valid.sum() < 30:
-            cors.append(np.nan)
-            continue
-        cors.append(a[valid].corr(b[valid], method="spearman"))
-    s = pd.Series(cors, index=f1.index).dropna()
-
-    if s.empty:
-        return {"corr_mean": np.nan, "corr_std": np.nan, "corr_roll_mean_std": np.nan}
-
-    roll = s.rolling(roll_window).mean()
-    return {
-        "corr_mean": safe_float(s.mean()),
-        "corr_std": safe_float(s.std(ddof=1)),
-        "corr_roll_mean_std": safe_float(roll.dropna().std(ddof=1)),
-    }
-
-
 def cs_r2_uplift(
     e_test: Evaluator,
     e_base: Optional[Evaluator],
@@ -470,25 +420,13 @@ def cs_r2_uplift(
     return out
 
 
-def load_factors_for_one_test(test_cfg: List[Dict[str, str]]) -> List[pd.DataFrame]:
-    dfs: List[pd.DataFrame] = []
-    for c in test_cfg:
-        df = factor_source.get_factor(
-            table=c["table_name"],
-            name=c["factor_name"],
-            begin=params.begin,
-            end=params.end,
-        ).sort_index()
-        dfs.append(df)
-    return dfs
-
-
 def run(
     factor_source: DuckPQSource,
     data_source: DuckPQSource,
     backtest_params: BacktestParams,
 ) -> Dict[str, Any]:
-    logger = setup_logger("Evaluator")
+    logger = setup_logger("FactorEvaluator")
+    logger.info(f"Evaluator start for test <{grenerate_test_key(backtest_params)}>")
 
     factor_data = factor_source.load(
         backtest_params.factor_paths,
@@ -496,18 +434,13 @@ def run(
         end=backtest_params.end,
     )
     logger.info(f"Loaded factor_data {factor_data.shape}")
-    future_return = factor_source.load(
+
+    target_price = factor_source.load(
         backtest_params.target_path,
         begin=backtest_params.begin,
         end=backtest_params.end,
         pad_end=backtest_params.horizon + 1,
     ).iloc[:, 0]
-    future_return = (
-        future_return.groupby("code").shift(-1)
-        / future_return.groupby("code").shift(-1 - backtest_params.horizon)
-        - 1
-    ).loc[backtest_params.begin : backtest_params.end]
-    logger.info(f"Loaded future_return {future_return.shape}")
 
     weight = None
     if backtest_params.weight_path is not None:
@@ -516,13 +449,24 @@ def run(
             begin=backtest_params.begin,
             end=backtest_params.end,
         )
-    feasible = get_trade_mask(
+    feasible = get_feasible(
         data_source=data_source,
         begin=backtest_params.begin,
-        end=backtest_params.end,
+        end=target_price.index.levels[0].max(),
         min_list_days=backtest_params.min_list_days,
-    )
+    ).iloc[:, 0]
     logger.info(f"Feasible and weighted loaded")
+
+    target_price = target_price.where(feasible)
+    future_return = (
+        target_price.groupby("code").shift(-1 - backtest_params.horizon)
+        / target_price.groupby("code").shift(-1)
+        - 1
+    )
+    future_return = future_return.loc[
+        future_return.index.levels[0][:: backtest_params.horizon], :
+    ].loc[backtest_params.begin : backtest_params.end]
+    logger.info(f"Loaded future_return {future_return.shape}")
 
     evaluator = Evaluator(
         factor=factor_data,
@@ -541,7 +485,9 @@ def run(
     # Correlation
     evaluator.get_correlation(backtest_params.ic_method)
     result["corr_mean"] = evaluator.factor_corr.groupby(level="factor").mean()
+    result["corr_mean"] = result["corr_mean"].reindex(result["corr_mean"].columns)
     result["corr_std"] = evaluator.factor_corr.groupby(level="factor").std()
+    result["corr_std"] = result["corr_std"].reindex(result["corr_std"].columns)
 
     # IC and IC tests
     evaluator.get_info_coef(
@@ -630,18 +576,22 @@ def run(
         evaluator_base = Evaluator(
             factor=full_data, future=future_return, feasible=feasible, weight=weight
         )
+
+        # Correlation and stability
+        evaluator_base.get_correlation(method=backtest_params.ic_method)
+        corr_mean = evaluator_base.factor_corr.groupby("factor").mean()
+        corr_mean = corr_mean.reindex(corr_mean.columns)
+        corr_std = evaluator_base.factor_corr.groupby("factor").std()
+        corr_std = corr_std.reindex(corr_std.columns)
+        incremental["corr_mean"] = corr_mean
+        incremental["corr_std"] = corr_std
+
+        # Incremental cross sectional regression
         evaluator_base.cross_sectional_regression(
             add_intercept=backtest_params.cs_add_intercept,
             cov_type=backtest_params.cs_cov_type,
             white_type=backtest_params.cs_white_type,
         )
-
-        # Correlation and stability
-        evaluator_base.get_correlation(method=backtest_params.ic_method)
-        corr_mean = evaluator_base.factor_corr.groupby("factor").mean()
-        corr_std = evaluator_base.factor_corr.groupby("factor").std()
-        incremental["corr_mean"] = corr_mean
-        incremental["corr_std"] = corr_std
 
         # R2 uplift (test vs baseline)
         incremental["r2_uplift"] = pd.Series(
@@ -757,7 +707,9 @@ def save(save_path: Union[Path, str], results: Dict[str, Dict]):
                 )
             else:
                 res["corr_mean"].to_excel(writer, sheet_name=f"factor_correlation_{i}")
-            res["ic_raw"].to_excel(writer, sheet_name=f"info_coef_{i}")
+            ic_raw = res["ic_raw"]
+            ic_raw = pd.concat([ic_raw, ic_raw.cumsum().add_suffix("_cumsum")], axis=1)
+            ic_raw.to_excel(writer, sheet_name=f"info_coef_{i}")
             res["group_values"].to_excel(writer, sheet_name=f"group_value_{i}")
             res["group_performance"].to_excel(
                 writer, sheet_name=f"group_performance_{i}"
@@ -791,18 +743,39 @@ def save(save_path: Union[Path, str], results: Dict[str, Dict]):
 
             # IC bar chart
             ws = wb[f"info_coef_{i}"]
-            chart = BarChart()
-            chart.type = "col"
-            chart.title = f"Information Coefficient"
-            chart.y_axis.title = "IC"
-            chart.x_axis.title = "Date"
+            bar = BarChart()
+            bar.type = "col"
+            bar.title = f"Information Coefficient"
+            bar.y_axis.title = "IC"
+            bar.x_axis.title = "Date"
 
-            data = Reference(ws, min_col=2, min_row=1, max_row=ws.max_row)
+            raw_data = Reference(
+                ws,
+                min_col=2,
+                max_col=len(ic_raw.columns) // 2 + 1,
+                min_row=1,
+                max_row=ws.max_row,
+            )
             cats = Reference(ws, min_col=1, min_row=2, max_row=ws.max_row)
-            chart.add_data(data, titles_from_data=True)
-            chart.set_categories(cats)
-            chart.gapWidth = 50
-            ws.add_chart(chart, "E2")
+            bar.add_data(raw_data, titles_from_data=True)
+            bar.set_categories(cats)
+            bar.gapWidth = 50
+
+            line = LineChart()
+            cum_data = Reference(
+                ws, min_col=len(ic_raw.columns) // 2 + 2, min_row=1, max_row=ws.max_row
+            )
+            line.add_data(cum_data, titles_from_data=True)
+            for s in line.series:
+                s.graphicalProperties.line = LineProperties(w=int(1 * 12700))
+            line.set_categories(cats)
+
+            line.y_axis.axId = 200
+            line.y_axis.crosses = "max"
+            line.y_axis.title = "Cumulative IC"
+
+            bar += line
+            ws.add_chart(bar, "B2")
 
             # Group value line chart
             ws = wb[f"group_value_{i}"]
@@ -815,12 +788,16 @@ def save(save_path: Union[Path, str], results: Dict[str, Dict]):
 
             cats = Reference(ws, min_col=1, min_row=2, max_row=max_row)
 
-            data = Reference(ws, min_col=2, min_row=1, max_col=max_col, max_row=max_row)
+            data = Reference(
+                ws, min_col=2, min_row=1, max_col=max_col - 1, max_row=max_row
+            )
 
             chart.add_data(data, titles_from_data=True)
+            for s in chart.series:
+                s.graphicalProperties.line = LineProperties(w=int(1 * 12700))
             chart.set_categories(cats)
 
-            ws.add_chart(chart, "N2")
+            ws.add_chart(chart, "B2")
 
 
 if __name__ == "__main__":
@@ -837,14 +814,24 @@ if __name__ == "__main__":
 
     params = [
         BacktestParams(
-            factor_paths="barra_momentum/barra_mom_st_63d",  # CONFIG: Placeholder for factor paths
-            baseline_factors="barra_size/mcap_float_a",
+            factor_paths=f"example_factor/{name}",  # CONFIG: Placeholder for factor paths
+            baseline_factors=[
+                "barra/size",
+                "barra/momentum",
+                "barra/volatility",
+                "barra/liquidity",
+                "barra/value",
+                "barra/profitability",
+                "barra/leverage",
+                "barra/growth",
+            ],
             begin="2015-01-01",
             end="2025-06-30",
         )
+        for name in ["example_factor_name"]
     ]
-    output_path = "factor_test.xlsx"  # CONFIG: Placeholder for output path
 
+    output_path = "factor_test.xlsx"  # CONFIG: Placeholder for output path
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
     factor_source = DuckPQSource(Path(FACTOR_DATA_PATH))
     results = {}
