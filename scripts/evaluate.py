@@ -1,6 +1,7 @@
 import os
 import dotenv
 from pathlib import Path
+from logging import Logger
 from dataclasses import dataclass
 from typing import Any, Dict, List, Tuple, Union, Optional, Literal
 
@@ -378,116 +379,13 @@ def group_monotonicity_tests(
     }
 
 
-def cs_r2_uplift(
-    e_test: Evaluator,
-    e_base: Optional[Evaluator],
-) -> Dict[str, Any]:
-    """
-    Uses evaluator cross-sectional regression outputs:
-    - base R2 (if provided)
-    - test R2 (model with test factor(s))
-    - uplift: test - base
-    """
-    out = {"cs_r2_mean": np.nan, "cs_r2_base_mean": np.nan, "cs_r2_uplift": np.nan}
-
-    try:
-        r2_test = e_test.factor_r2
-        if isinstance(r2_test, pd.DataFrame):
-            # If multiple columns exist, use the first numeric column
-            r2_test_series = r2_test.select_dtypes(include=[np.number]).iloc[:, 0]
-        else:
-            r2_test_series = pd.Series(r2_test)
-        out["cs_r2_mean"] = safe_float(pd.Series(r2_test_series).dropna().mean())
-    except Exception:
-        out["cs_r2_mean"] = np.nan
-
-    if e_base is not None:
-        try:
-            r2_base = e_base.factor_r2
-            if isinstance(r2_base, pd.DataFrame):
-                r2_base_series = r2_base.select_dtypes(include=[np.number]).iloc[:, 0]
-            else:
-                r2_base_series = pd.Series(r2_base)
-            out["cs_r2_base_mean"] = safe_float(
-                pd.Series(r2_base_series).dropna().mean()
-            )
-        except Exception:
-            out["cs_r2_base_mean"] = np.nan
-
-    if np.isfinite(out["cs_r2_mean"]) and np.isfinite(out["cs_r2_base_mean"]):
-        out["cs_r2_uplift"] = out["cs_r2_mean"] - out["cs_r2_base_mean"]
-
-    return out
-
-
-def run(
-    factor_source: DuckPQSource,
-    data_source: DuckPQSource,
-    backtest_params: BacktestParams,
-) -> Dict[str, Any]:
-    logger = setup_logger("FactorEvaluator")
-    logger.info(f"Evaluator start for test <{grenerate_test_key(backtest_params)}>")
-
-    factor_data = factor_source.load(
-        backtest_params.factor_paths,
-        begin=backtest_params.begin,
-        end=backtest_params.end,
-    )
-    logger.info(f"Loaded factor_data {factor_data.shape}")
-
-    target_price = factor_source.load(
-        backtest_params.target_path,
-        begin=backtest_params.begin,
-        end=backtest_params.end,
-        pad_end=backtest_params.horizon + 1,
-    ).iloc[:, 0]
-
-    weight = None
-    if backtest_params.weight_path is not None:
-        weight = factor_source.load(
-            backtest_params.weight_path,
-            begin=backtest_params.begin,
-            end=backtest_params.end,
-        )
-    feasible = get_feasible(
-        data_source=data_source,
-        begin=backtest_params.begin,
-        end=target_price.index.levels[0].max(),
-        min_list_days=backtest_params.min_list_days,
-    ).iloc[:, 0]
-    logger.info(f"Feasible and weighted loaded")
-
-    target_price = target_price.where(feasible)
-    future_return = (
-        target_price.groupby("code").shift(-1 - backtest_params.horizon)
-        / target_price.groupby("code").shift(-1)
-        - 1
-    )
-    future_return = future_return.loc[
-        future_return.index.levels[0][:: backtest_params.horizon], :
-    ].loc[backtest_params.begin : backtest_params.end]
-    logger.info(f"Loaded future_return {future_return.shape}")
-
-    evaluator = Evaluator(
-        factor=factor_data,
-        future=future_return,
-        weight=weight,
-        feasible=feasible,
-    )
-
+def run_evaluator(evaluator: Evaluator, backtest_params: BacktestParams):
+    factor_names = evaluator._factor_df.columns.to_list()
     result: Dict[str, Any] = {}
-    factor_names = factor_data.columns.to_list()
 
     # Coverage
     evaluator.get_coverage()
     result["mean_coverage"] = evaluator.factor_coverage.mean()
-
-    # Correlation
-    evaluator.get_correlation(backtest_params.ic_method)
-    result["corr_mean"] = evaluator.factor_corr.groupby(level="factor").mean()
-    result["corr_mean"] = result["corr_mean"].reindex(result["corr_mean"].columns)
-    result["corr_std"] = evaluator.factor_corr.groupby(level="factor").std()
-    result["corr_std"] = result["corr_std"].reindex(result["corr_std"].columns)
 
     # IC and IC tests
     evaluator.get_info_coef(
@@ -552,19 +450,68 @@ def run(
         )
         mono_rows.append(pd.Series(mono, name=factor_name))
     result["monotonicity"] = pd.DataFrame(mono_rows)
+    result["evaluator"] = evaluator
+    return result
 
-    # Cross-sectional regression (test model)
-    evaluator.cross_sectional_regression(
-        add_intercept=backtest_params.cs_add_intercept,
-        cov_type=backtest_params.cs_cov_type,
-        white_type=backtest_params.cs_white_type,
+
+def run_test(
+    factor_source: DuckPQSource,
+    data_source: DuckPQSource,
+    backtest_params: BacktestParams,
+    logger: Logger,
+):
+    factor_data = factor_source.load(
+        backtest_params.factor_paths,
+        begin=backtest_params.begin,
+        end=backtest_params.end,
     )
-    result["cs_premia"] = evaluator.factor_premia
-    result["cs_premia_t"] = evaluator.factor_premia_t
-    result["cs_r2"] = evaluator.factor_r2
+    logger.info(f"Loaded factor_data {factor_data.shape}")
+
+    target_price = factor_source.load(
+        backtest_params.target_path,
+        begin=backtest_params.begin,
+        end=backtest_params.end,
+        pad_end=backtest_params.horizon + 1,
+    ).iloc[:, 0]
+
+    weight = None
+    if backtest_params.weight_path is not None:
+        weight = factor_source.load(
+            backtest_params.weight_path,
+            begin=backtest_params.begin,
+            end=backtest_params.end,
+        )
+    feasible = get_feasible(
+        data_source=data_source,
+        begin=backtest_params.begin,
+        end=target_price.index.levels[0].max(),
+        min_list_days=backtest_params.min_list_days,
+    ).iloc[:, 0]
+    logger.info(f"Feasible and weighted loaded")
+
+    target_price = target_price.where(feasible)
+    future_return = (
+        target_price.groupby("code").shift(-1 - backtest_params.horizon)
+        / target_price.groupby("code").shift(-1)
+        - 1
+    )
+    future_return = future_return.loc[
+        future_return.index.levels[0][:: backtest_params.horizon], :
+    ].loc[backtest_params.begin : backtest_params.end]
+    logger.info(f"Loaded future_return {future_return.shape}")
+
+    evaluator = Evaluator(
+        factor=factor_data,
+        future=future_return,
+        weight=weight,
+        feasible=feasible,
+        logger=logger,
+    )
+
+    result: Dict[str, Dict[str, Any]] = {}
+    result["raw"] = run_evaluator(evaluator, backtest_params)
 
     # Incremental tests vs baseline factors
-    incremental = {}
     if backtest_params.baseline_factors:
         # Build baseline evaluator (regression with baseline factors only)
         baseline_factor_data = factor_source.load(
@@ -572,57 +519,85 @@ def run(
             begin=backtest_params.begin,
             end=backtest_params.end,
         )
-        full_data = pd.concat([factor_data, baseline_factor_data], axis=1)
-        evaluator_base = Evaluator(
-            factor=full_data, future=future_return, feasible=feasible, weight=weight
+        residual = []
+        for factor_name in factor_data.columns:
+            logger.info(f"Orthogonalization for {factor_name}")
+            evaluator_base = Evaluator(
+                factor=baseline_factor_data,
+                future=factor_data,
+            )
+
+            # Incremental cross sectional regression
+            evaluator_base.cross_sectional_regression(
+                add_intercept=backtest_params.cs_add_intercept,
+                cov_type=backtest_params.cs_cov_type,
+                white_type=backtest_params.cs_white_type,
+            )
+            residual.append(
+                factor_data.sub(
+                    (
+                        baseline_factor_data
+                        * evaluator_base.factor_premia[baseline_factor_data.columns]
+                    )
+                    .sum(axis=1)
+                    .add(evaluator_base.factor_premia["intercept"]),
+                    axis=0,
+                )
+            )
+
+        residual = pd.concat(residual, axis=1).add_suffix("_ortho")
+        evaluator_residual = Evaluator(
+            factor=residual,
+            future=future_return,
+            feasible=feasible,
+            weight=weight,
+            logger=logger,
         )
-
-        # Correlation and stability
-        evaluator_base.get_correlation(method=backtest_params.ic_method)
-        corr_mean = evaluator_base.factor_corr.groupby("factor").mean()
-        corr_mean = corr_mean.reindex(corr_mean.columns)
-        corr_std = evaluator_base.factor_corr.groupby("factor").std()
-        corr_std = corr_std.reindex(corr_std.columns)
-        incremental["corr_mean"] = corr_mean
-        incremental["corr_std"] = corr_std
-
-        # Incremental cross sectional regression
-        evaluator_base.cross_sectional_regression(
-            add_intercept=backtest_params.cs_add_intercept,
-            cov_type=backtest_params.cs_cov_type,
-            white_type=backtest_params.cs_white_type,
-        )
-
-        # R2 uplift (test vs baseline)
-        incremental["r2_uplift"] = pd.Series(
-            cs_r2_uplift(e_test=evaluator, e_base=evaluator_base), name="r2_uplift"
+        result["baseline_factor"] = baseline_factor_data
+        result["inc"] = run_evaluator(
+            evaluator_residual, backtest_params=backtest_params
         )
 
     else:
-        incremental["corr_mean"] = pd.DataFrame()
-        incremental["corr_std"] = pd.DataFrame()
-        incremental["r2_uplift"] = pd.Series(
-            {
-                "cs_r2_mean": (
-                    safe_float(
-                        pd.Series(
-                            evaluator.factor_r2.select_dtypes(include=[np.number]).iloc[
-                                :, 0
-                            ]
-                        ).mean()
-                    )
-                    if isinstance(evaluator.factor_r2, pd.DataFrame)
-                    else np.nan
-                ),
-                "cs_r2_base_mean": np.nan,
-                "cs_r2_uplift": np.nan,
-            },
-            name="r2_uplift",
-        )
-
-    result["incremental"] = incremental
+        result["baseline_factor"] = None
+        result["inc"] = None
 
     return result
+
+
+def run(
+    factor_source: DuckPQSource,
+    data_source: DuckPQSource,
+    backtest_params: List[BacktestParams],
+) -> Dict[str, Any]:
+    logger = setup_logger("FactorEvaluator")
+    results: Dict[str, Dict[str, Any]] = {}
+    for params in backtest_params:
+        key = grenerate_test_key(params)
+        logger.info(f"Evaluator start <{key}>")
+        results[key] = run_test(
+            factor_source=factor_source,
+            data_source=data_source,
+            backtest_params=params,
+            logger=logger,
+        )
+    factor_total = pd.concat(
+        [list(results.values())[0]["baseline_factor"]]
+        + [res["raw"]["evaluator"]._factor_df for res in results.values()]
+        + (
+            [
+                res["inc"]["evaluator"]._factor_df
+                for res in results.values()
+                if res["inc"] is not None
+            ]
+        ),
+        axis=1,
+    )
+    results["correlation"] = factor_total.groupby("date").corr().groupby(level=1).mean()
+    results["correlation"] = results["correlation"].reindex(
+        results["correlation"].columns
+    )
+    return results
 
 
 def _to_1col_df(x, col_name: str) -> pd.DataFrame:
@@ -643,161 +618,197 @@ def _to_1col_df(x, col_name: str) -> pd.DataFrame:
 def save(save_path: Union[Path, str], results: Dict[str, Dict]):
     blocks: List[pd.DataFrame] = []
 
-    for test_key, res in results.items():
-        cov = res.get("mean_coverage")  # often Series
-        ic_summ = res.get("ic_summary")  # DF
-        ic_stab = res.get("ic_stability")  # DF
-        mono = res.get("monotonicity")  # DF
-        inc_r2 = res.get("incremental", {}).get("r2_uplift")  # dict or DF
-
-        cov_df = _to_1col_df(cov, "coverage")
-
-        ic_summ_df = (
-            ic_summ.copy() if isinstance(ic_summ, pd.DataFrame) else pd.DataFrame()
-        )
-        ic_stab_df = (
-            ic_stab.copy() if isinstance(ic_stab, pd.DataFrame) else pd.DataFrame()
-        )
-        mono_df = mono.copy() if isinstance(mono, pd.DataFrame) else pd.DataFrame()
-
-        if isinstance(inc_r2, pd.DataFrame):
-            inc_r2_df = inc_r2.copy()
-        elif isinstance(inc_r2, dict):
-            inc_r2_df = pd.DataFrame([inc_r2])
-        else:
-            inc_r2_df = pd.DataFrame()
-
-        base_index = None
-        for df_ in [ic_summ_df, ic_stab_df, mono_df, cov_df]:
-            if isinstance(df_, pd.DataFrame) and len(df_) > 0:
-                base_index = df_.index
-                break
-        if base_index is None:
+    for i, (test_key, res) in enumerate(results.items(), start=1):
+        if test_key == "correlation":
             continue
-
-        big = pd.concat(
-            [cov_df, ic_summ_df, ic_stab_df, mono_df],
-            axis=1,
-            join="outer",
-        )
-
-        if len(inc_r2_df) > 0:
-            inc_row = inc_r2_df.iloc[0]
-            for c in inc_row.index:
-                big[c] = inc_row[c]
-
-        big.insert(0, "test_key", test_key)
-
-        big = big.reset_index().rename(columns={"index": "factor"})
-
-        blocks.append(big)
+        for restype in ["raw", "inc"]:
+            rr = res[restype]
+            if res[restype] is None:
+                continue
+            cov = rr.get("mean_coverage")  # often Series
+            ic_summ = rr.get("ic_summary")  # DF
+            ic_stab = rr.get("ic_stability")  # DF
+            mono = rr.get("monotonicity")  # DF
+            group_ret = rr.get("group_return_summary")  # DF
+            cov_df = _to_1col_df(cov, "coverage")
+            ic_summ_df = (
+                ic_summ.copy() if isinstance(ic_summ, pd.DataFrame) else pd.DataFrame()
+            )
+            ic_stab_df = (
+                ic_stab.copy() if isinstance(ic_stab, pd.DataFrame) else pd.DataFrame()
+            )
+            mono_df = mono.copy() if isinstance(mono, pd.DataFrame) else pd.DataFrame()
+            group_ret.index = [
+                f"factor_return({i})" for i in range(1, len(group_ret))
+            ] + ["factor_return"]
+            gr_df = group_ret.loc[:, "mean"].add_suffix("_mean")
+            base_index = None
+            for df_ in [ic_summ_df, ic_stab_df, mono_df, cov_df, group_ret]:
+                if isinstance(df_, pd.DataFrame) and len(df_) > 0:
+                    base_index = df_.index
+                    break
+            if base_index is None:
+                continue
+            gr_df = _to_1col_df(gr_df, base_index).T
+            big = pd.concat(
+                [cov_df, ic_summ_df, ic_stab_df, mono_df, gr_df],
+                axis=1,
+                join="outer",
+            )
+            big.insert(0, "test_key", test_key)
+            big = big.reset_index().rename(columns={"index": "factor"})
+            big.insert(2, "test_index", i)
+            blocks.append(big)
 
     if not blocks:
         return pd.DataFrame()
 
-    out = pd.concat(blocks, axis=0, ignore_index=True)
-    out.index = pd.RangeIndex(1, len(out) + 1, step=1, name="index")
+    summary = pd.concat(blocks, axis=0, ignore_index=True)
+    summary.index = pd.RangeIndex(1, len(summary) + 1, step=1, name="index")
+    correlation = results["correlation"]
 
     with pd.ExcelWriter(save_path, engine="openpyxl") as writer:
-        out.to_excel(writer, sheet_name="summary")
+        # Drawing charts in original excel file
+        wb = writer.book
+
+        summary.to_excel(writer, sheet_name="summary", index=False)
+        correlation.to_excel(writer, sheet_name="correlation")
+        # Correlation rule color
+        ws = wb[f"correlation"]
+        min_row, min_col = 2, 2
+        max_row, max_col = ws.max_row, ws.max_column
+        rule = ColorScaleRule(
+            start_type="num",
+            start_value=-1,
+            start_color="2F5597",
+            mid_type="num",
+            mid_value=0,
+            mid_color="FFFFFF",
+            end_type="num",
+            end_value=1,
+            end_color="C00000",
+        )
+        cell_range = f"{get_column_letter(min_col)}{min_row}:{get_column_letter(max_col)}{max_row}"
+        ws.conditional_formatting.add(cell_range, rule)
+        ws.freeze_panes = "B2"
+
         for i, (test_key, res) in enumerate(results.items(), start=1):
-            if not res["incremental"]["corr_mean"].empty:
-                res["incremental"]["corr_mean"].to_excel(
-                    writer, sheet_name=f"factor_correlation_{i}"
-                )
-            else:
-                res["corr_mean"].to_excel(writer, sheet_name=f"factor_correlation_{i}")
-            ic_raw = res["ic_raw"]
+            if test_key == "correlation":
+                continue
+
+            rr = res["raw"]
+            ri = res["inc"]
+
+            # IC data
+            ic_raw = pd.concat(
+                [rr["ic_raw"]] + ([] if ri is None else [ri["ic_raw"]]), axis=1
+            )
             ic_raw = pd.concat([ic_raw, ic_raw.cumsum().add_suffix("_cumsum")], axis=1)
             ic_raw.to_excel(writer, sheet_name=f"info_coef_{i}")
-            res["group_values"].to_excel(writer, sheet_name=f"group_value_{i}")
-            res["group_performance"].to_excel(
-                writer, sheet_name=f"group_performance_{i}"
-            )
-            if not res["incremental"]["corr_mean"].empty:
-                res["incremental"]["r2_uplift"].to_excel(
-                    writer, sheet_name=f"r2_uplift_{i}"
-                )
-
-            # Drawing charts in original excel file
-            wb = writer.book
-
-            # Correlation rule color
-            ws = wb[f"factor_correlation_{i}"]
-            min_row, min_col = 2, 2
-            max_row, max_col = ws.max_row, ws.max_column
-            rule = ColorScaleRule(
-                start_type="num",
-                start_value=-1,
-                start_color="2F5597",
-                mid_type="num",
-                mid_value=0,
-                mid_color="FFFFFF",
-                end_type="num",
-                end_value=1,
-                end_color="C00000",
-            )
-            cell_range = f"{get_column_letter(min_col)}{min_row}:{get_column_letter(max_col)}{max_row}"
-            ws.conditional_formatting.add(cell_range, rule)
-            ws.freeze_panes = "B2"
-
-            # IC bar chart
+            # IC bar chart + line chart
+            factor_cols = ic_raw.columns[~ic_raw.columns.str.endswith("_cumsum")]
             ws = wb[f"info_coef_{i}"]
-            bar = BarChart()
-            bar.type = "col"
-            bar.title = f"Information Coefficient"
-            bar.y_axis.title = "IC"
-            bar.x_axis.title = "Date"
+            for ii, col in enumerate(factor_cols):
+                bar = BarChart()
+                bar.width = 30
+                bar.height = 20
+                bar.type = "col"
+                bar.title = f"Information Coefficient {col}"
+                bar.y_axis.title = "IC"
+                bar.x_axis.title = "Date"
 
-            raw_data = Reference(
-                ws,
-                min_col=2,
-                max_col=len(ic_raw.columns) // 2 + 1,
-                min_row=1,
-                max_row=ws.max_row,
+                raw_data = Reference(
+                    ws,
+                    min_col=2 + ii,
+                    max_col=2 + ii,
+                    min_row=1,
+                    max_row=ws.max_row,
+                )
+                cats = Reference(ws, min_col=1, min_row=2, max_row=ws.max_row)
+                bar.add_data(raw_data, titles_from_data=True)
+                bar.set_categories(cats)
+                bar.gapWidth = 50
+
+                line = LineChart()
+                cum_data = Reference(
+                    ws,
+                    min_col=2 + len(factor_cols) + ii,
+                    max_col=2 + len(factor_cols) + ii,
+                    min_row=1,
+                    max_row=ws.max_row,
+                )
+                line.add_data(cum_data, titles_from_data=True)
+                for s in line.series:
+                    s.graphicalProperties.line = LineProperties(w=int(1 * 12700))
+                line.set_categories(cats)
+
+                line.y_axis.axId = 200
+                line.y_axis.crosses = "max"
+                line.y_axis.title = "Cumulative IC"
+
+                bar += line
+                ws.add_chart(bar, f"B{2 + 50*ii}")
+
+            # Group Data
+            group_values = pd.concat(
+                [rr["group_values"]] + ([] if ri is None else [ri["group_values"]]),
+                axis=1,
             )
-            cats = Reference(ws, min_col=1, min_row=2, max_row=ws.max_row)
-            bar.add_data(raw_data, titles_from_data=True)
-            bar.set_categories(cats)
-            bar.gapWidth = 50
-
-            line = LineChart()
-            cum_data = Reference(
-                ws, min_col=len(ic_raw.columns) // 2 + 2, min_row=1, max_row=ws.max_row
-            )
-            line.add_data(cum_data, titles_from_data=True)
-            for s in line.series:
-                s.graphicalProperties.line = LineProperties(w=int(1 * 12700))
-            line.set_categories(cats)
-
-            line.y_axis.axId = 200
-            line.y_axis.crosses = "max"
-            line.y_axis.title = "Cumulative IC"
-
-            bar += line
-            ws.add_chart(bar, "B2")
-
+            group_values.to_excel(writer, sheet_name=f"group_value_{i}")
             # Group value line chart
             ws = wb[f"group_value_{i}"]
             max_row = ws.max_row
             max_col = ws.max_column
+            n = group_values.shape[1] // len(factor_cols) - 1
+            for ii, fcol in enumerate(factor_cols):
+                chart = LineChart()
+                chart.width = 30
+                chart.height = 20
+                chart.title = f"{fcol} Group Net Value"
+                chart.y_axis.title = "Net Value"
 
-            chart = LineChart()
-            chart.title = f"Group Net Value"
-            chart.y_axis.title = "Net Value"
+                cats = Reference(ws, min_col=1, min_row=2, max_row=max_row)
 
-            cats = Reference(ws, min_col=1, min_row=2, max_row=max_row)
+                data = Reference(
+                    ws,
+                    min_col=ii * n + 2 + ii,
+                    min_row=1,
+                    max_col=(ii + 1) * n + 1,
+                    max_row=max_row,
+                )
 
-            data = Reference(
-                ws, min_col=2, min_row=1, max_col=max_col - 1, max_row=max_row
+                chart.add_data(data, titles_from_data=True)
+                for s in chart.series:
+                    s.graphicalProperties.line = LineProperties(w=int(1 * 12700))
+                chart.set_categories(cats)
+
+                chart_right = LineChart()
+                data = Reference(
+                    ws,
+                    min_col=(ii + 1) * n + 2 + ii,
+                    min_row=1,
+                    max_col=(ii + 1) * n + 2 + ii,
+                    max_row=max_row,
+                )
+                chart_right.add_data(data, titles_from_data=True)
+                chart_right.set_categories(cats)
+                for s in chart_right.series:
+                    s.graphicalProperties.line = LineProperties(w=int(1 * 12700))
+
+                chart_right.y_axis.axId = 200
+                chart_right.y_axis.crosses = "max"
+                chart_right.y_axis.title = "Cumulative IC"
+
+                chart += chart_right
+                ws.add_chart(chart, f"B{2 + 50*ii}")
+
+            # Group performance
+            group_performance = pd.concat(
+                [rr["group_performance"]]
+                + ([] if ri is None else [ri["group_performance"]]),
+                axis=1,
             )
-
-            chart.add_data(data, titles_from_data=True)
-            for s in chart.series:
-                s.graphicalProperties.line = LineProperties(w=int(1 * 12700))
-            chart.set_categories(cats)
-
-            ws.add_chart(chart, "B2")
+            group_performance.to_excel(writer, sheet_name=f"group_performance_{i}")
 
 
 if __name__ == "__main__":
@@ -834,8 +845,5 @@ if __name__ == "__main__":
     output_path = "factor_test.xlsx"  # CONFIG: Placeholder for output path
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
     factor_source = DuckPQSource(Path(FACTOR_DATA_PATH))
-    results = {}
-    for param in params:
-        result = run(factor_source, data_source, param)
-        results[grenerate_test_key(param)] = result
+    results = run(factor_source, data_source, params)
     save(output_path, results)
