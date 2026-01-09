@@ -450,7 +450,7 @@ def run_evaluator(evaluator: Evaluator, backtest_params: BacktestParams):
         )
         mono_rows.append(pd.Series(mono, name=factor_name))
     result["monotonicity"] = pd.DataFrame(mono_rows)
-    result["evaluator"] = evaluator
+    result["factor"] = evaluator._factor_df
     return result
 
 
@@ -572,7 +572,7 @@ def run(
 ) -> Dict[str, Any]:
     logger = setup_logger("FactorEvaluator")
     results: Dict[str, Dict[str, Any]] = {}
-    for params in backtest_params:
+    for i, params in enumerate(backtest_params):
         key = grenerate_test_key(params)
         logger.info(f"Evaluator start <{key}>")
         results[key] = run_test(
@@ -581,15 +581,13 @@ def run(
             backtest_params=params,
             logger=logger,
         )
+        if i > 0:
+            del results[key]["baseline_factor"]
     factor_total = pd.concat(
         [list(results.values())[0]["baseline_factor"]]
-        + [res["raw"]["evaluator"]._factor_df for res in results.values()]
+        + [res["raw"]["factor"] for res in results.values()]
         + (
-            [
-                res["inc"]["evaluator"]._factor_df
-                for res in results.values()
-                if res["inc"] is not None
-            ]
+            [res["inc"]["factor"] for res in results.values() if res["inc"] is not None]
         ),
         axis=1,
     )
@@ -672,6 +670,30 @@ def save(save_path: Union[Path, str], results: Dict[str, Dict]):
         wb = writer.book
 
         summary.to_excel(writer, sheet_name="summary", index=False)
+
+        # Add average group return bar chart
+        ws = wb[f"summary"]
+        bar = BarChart()
+        bar.width = 30
+        bar.height = 20
+        bar.type = "col"
+        bar.title = f"Average Return For Each Group"
+        bar.y_axis.title = "Return"
+        bar.x_axis.title = "Group"
+
+        raw_data = Reference(
+            ws,
+            min_col=32,
+            max_col=ws.max_column - 1,
+            min_row=1,
+            max_row=ws.max_row,
+        )
+        cats = Reference(ws, min_col=1, min_row=2, max_row=ws.max_row)
+        bar.add_data(raw_data, titles_from_data=True)
+        bar.set_categories(cats)
+        bar.gapWidth = 50
+        ws.add_chart(bar, f"A{len(summary) + 3}")
+
         correlation.to_excel(writer, sheet_name="correlation")
         # Correlation rule color
         ws = wb[f"correlation"]
@@ -842,7 +864,7 @@ if __name__ == "__main__":
         for name in ["example_factor_name"]
     ]
 
-    output_path = "factor_test.xlsx"  # CONFIG: Placeholder for output path
+    output_path = "highfreq_skew_kurt__batch2.xlsx"  # CONFIG: Placeholder for output path
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
     factor_source = DuckPQSource(Path(FACTOR_DATA_PATH))
     results = run(factor_source, data_source, params)

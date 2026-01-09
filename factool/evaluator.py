@@ -371,8 +371,7 @@ class Evaluator:
         self._logger.info(f"[group_returns] n={n} mode={mode}")
 
         # only keep rows with return
-        base = self._panel.copy()
-        base = base.join(self._feasible).join(self._weight)
+        base = self._panel.join(self._feasible).join(self._weight)
         base = base[base["ret"].notna() & base["feasible"].astype(bool)]
 
         if base.empty:
@@ -602,8 +601,7 @@ class Evaluator:
         """
         self._logger.info(f"[IC] method={method}")
 
-        base = self._panel.copy()
-        base = base[base["ret"].notna()]
+        base = self._panel[self._panel["ret"].notna()]
         if base.empty:
             self.info_coef = pd.DataFrame(columns=self._names, dtype=float)
             self.ic_direction = pd.Series(dtype=float)
@@ -653,7 +651,7 @@ class Evaluator:
             f"[CS reg] add_intercept={add_intercept}, cov_type={cov_type}"
         )
 
-        base = self._panel.copy().join(self._feasible).join(self._weight)
+        base = self._panel.join(self._feasible).join(self._weight)
         base = base[base["ret"].notna() & base["feasible"].astype(bool)]
 
         dates = base.index.get_level_values(0).unique()
