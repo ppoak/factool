@@ -40,7 +40,19 @@ source.register("quotes_min")
 # Config
 # -----------------------------
 FACTOR_TABLE_NAME = "target"  # 入库表名
-FACTOR_COLS = ["open", "close", "vwap", "twap"]  # 最终输出列名
+FACTOR_COLS = [
+    "open",
+    "high",
+    "low",
+    "close",
+    "open_post",
+    "high_post",
+    "low_post",
+    "close_post",
+    "vwap",
+    "twap",
+    "volume",
+]  # 最终输出列名
 
 
 # -----------------------------
@@ -54,7 +66,9 @@ def month_ranges(begin: str, end: str) -> List[Tuple[pd.Timestamp, pd.Timestamp]
     end_ts = pd.Timestamp(end).normalize()
 
     if end_ts <= begin_ts:
-        raise ValueError(f"end must be greater than begin, got begin={begin_ts}, end={end_ts}")
+        raise ValueError(
+            f"end must be greater than begin, got begin={begin_ts}, end={end_ts}"
+        )
 
     months = pd.date_range(begin_ts, end_ts, freq="MS")
     if len(months) == 0 or months[0] != begin_ts.replace(day=1):
@@ -64,7 +78,7 @@ def month_ranges(begin: str, end: str) -> List[Tuple[pd.Timestamp, pd.Timestamp]
     ranges: List[Tuple[pd.Timestamp, pd.Timestamp]] = []
     for m in months:
         m_begin = m
-        m_end = (m + pd.offsets.MonthBegin(1))
+        m_end = m + pd.offsets.MonthBegin(1)
         # clip to [begin, end)
         r_begin = max(m_begin, begin_ts)
         r_end = min(m_end, end_ts)
@@ -87,8 +101,15 @@ sql_day = f"""
 SELECT
   CAST(date AS TIMESTAMP) AS date,
   code,
-  open_post AS open,
-  close_post AS close
+  open_post,
+  high_post,
+  low_post,
+  close_post,
+  open,
+  high,
+  low,
+  close,
+  volume  
 FROM quotes_day
 WHERE date >= DATE '{pd.Timestamp(BEGIN).date()}'
   AND date <  DATE '{pd.Timestamp(END).date()}'
@@ -120,8 +141,10 @@ for m_begin, m_end in month_ranges(BEGIN, END):
     min_agg_df = min_agg_df.sort_values(["date", "code"]).reset_index(drop=True)
     monthly_parts.append(min_agg_df)
 
-min_df = pd.concat(monthly_parts, axis=0, ignore_index=True) if monthly_parts else pd.DataFrame(
-    columns=["date", "code", "vwap", "twap"]
+min_df = (
+    pd.concat(monthly_parts, axis=0, ignore_index=True)
+    if monthly_parts
+    else pd.DataFrame(columns=["date", "code", "vwap", "twap"])
 )
 
 
