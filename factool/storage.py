@@ -1,3 +1,4 @@
+import re
 from functools import partial
 from typing import Union, Literal, Iterable, Tuple, Dict, List, Optional
 
@@ -8,7 +9,7 @@ from parquool import DuckPQ
 from .oprator import Operator
 
 
-def parse_factor_path(path: str, sep: str = "/") -> Tuple[str, str]:
+def parse_factor_path(path: str, sep: str = "/") -> Tuple[str, str, Optional[str]]:
     if not isinstance(path, str):
         raise TypeError(f"factor path must be str, got {type(path)}: {path}")
     s = path.strip()
@@ -16,8 +17,22 @@ def parse_factor_path(path: str, sep: str = "/") -> Tuple[str, str]:
         raise ValueError("empty factor path")
     parts = s.split(sep)
     if len(parts) != 2 or not parts[0] or not parts[1]:
-        raise ValueError(f"invalid factor path: {path!r}, expected 'table{sep}factor'")
-    return parts[0], parts[1]
+        raise ValueError(
+            f"invalid factor path: {path!r}, expected 'table{sep}factor' or 'table{sep}factor AS alias'"
+        )
+    table = parts[0].strip()
+    rhs = parts[1].strip()
+    split_as = re.split(r"\s+AS\s+", rhs, maxsplit=1, flags=re.IGNORECASE)
+    if len(split_as) == 2:
+        factor = split_as[0].strip()
+        alias = split_as[1].strip()
+        if not factor or not alias:
+            raise ValueError(
+                f"invalid factor path: {path!r}, expected 'table{sep}factor' or 'table{sep}factor AS alias'"
+            )
+        return table, factor, alias
+    else:
+        return table, rhs, None
 
 
 class DuckPQSource(DuckPQ):
@@ -90,9 +105,8 @@ class DuckPQSource(DuckPQ):
         base_table: Optional[str] = None,
     ) -> pd.DataFrame:
         """Loads one or many factors and joins them in DuckDB.
-
         Args:
-            factor_paths: Iterable of factor paths like "table/factor".
+            factor_paths: Iterable of factor paths like "table/factor" or "table/factor AS alias".
             begin: Begin date (inclusive), passed into SQL as a string.
             end: End date (inclusive), passed into SQL as a string.
             sep: Path separator used in `factor_paths`.
@@ -101,10 +115,8 @@ class DuckPQSource(DuckPQ):
             pad_end: Relative to end, pad more data (0 for no padding).
             base_table: The anchor table name used as the left side of the join chain.
                 If None, the first table in `factor_paths` is used.
-
         Returns:
-            A pandas DataFrame indexed by ["date", "code"] with factor columns.
-
+            A pandas DataFrame indexed by ["date", "code"] with factor columns (aliases applied if provided).
         Raises:
             ValueError: If inputs are invalid.
             TypeError: If a factor path is not a string.
@@ -114,17 +126,14 @@ class DuckPQSource(DuckPQ):
         )
         if not factor_paths:
             raise ValueError("factor_paths is empty")
-
         if not isinstance(pad_begin, int):
             raise TypeError("lookback must be int")
         if pad_begin < 0:
             raise ValueError("lookback must be >= 0")
-
         if not isinstance(pad_end, int):
             raise TypeError("lookforward must be int")
         if pad_end < 0:
             raise ValueError("lookforward must be >= 0")
-
         join = join.lower()
         join_map = {
             "inner": "INNER JOIN",
@@ -135,13 +144,14 @@ class DuckPQSource(DuckPQ):
         if join not in join_map:
             raise ValueError(f"invalid join={join!r}, choose from {list(join_map)}")
 
-        # Parse factor paths and group requested columns by table.
-        by_table: Dict[str, List[str]] = {}
+        # by_table: {table: [(column, alias_name), ...]}
+        by_table: Dict[str, List[Tuple[str, str]]] = {}
         for p in factor_paths:
-            t, c = parse_factor_path(p, sep=sep)
-            by_table.setdefault(t, [])
-            if c not in by_table[t]:
-                by_table[t].append(c)
+            t, c, alias = parse_factor_path(p, sep=sep)
+            alias_name = alias if alias is not None else c
+            lst = by_table.setdefault(t, [])
+            if all(existing_alias != alias_name for _, existing_alias in lst):
+                lst.append((c, alias_name))
 
         tables = list(by_table.keys())
         if base_table is None:
@@ -158,7 +168,6 @@ class DuckPQSource(DuckPQ):
         # ---- compute lookback/lookforward bounds (based on base_table calendar) ----
         begin_for_sql = begin
         end_for_sql = end
-
         if pad_begin > 0:
             sql_begin_lb = f"""
             WITH cal AS (
@@ -189,7 +198,6 @@ class DuckPQSource(DuckPQ):
                 begin_for_sql = tmp2.iloc[0, 0]
             else:
                 begin_for_sql = tmp.iloc[0, 0]
-
         if pad_end > 0:
             sql_end_lf = f"""
             WITH cal AS (
@@ -222,7 +230,7 @@ class DuckPQSource(DuckPQ):
                 end_for_sql = tmp.iloc[0, 0]
 
         def subquery(table: str) -> str:
-            cols = ", ".join(by_table[table])
+            cols = ", ".join(sorted({col for col, _ in by_table[table]}))
             return f"""
                 SELECT
                     CAST(date AS TIMESTAMP) AS date,
@@ -237,7 +245,6 @@ class DuckPQSource(DuckPQ):
         sql_from = f"FROM ({subquery(base_table)}) AS {base_alias}\n"
         key_date = f"{base_alias}.date"
         key_code = f"{base_alias}.code"
-
         i = 0
         for t in tables:
             if t == base_table:
@@ -253,16 +260,18 @@ class DuckPQSource(DuckPQ):
                 key_code = f"COALESCE({key_code}, {a}.code)"
 
         select_cols: List[str] = [f"{key_date} AS date", f"{key_code} AS code"]
-        for c in by_table[base_table]:
-            select_cols.append(f"{base_alias}.{c} AS {c}")
+        # base_table column (as alias)
+        for col, alias_name in by_table[base_table]:
+            select_cols.append(f"{base_alias}.{col} AS {alias_name}")
+        # other columns from table (as alias)
         i = 0
         for t in tables:
             if t == base_table:
                 continue
             i += 1
             a = f"t{i}"
-            for c in by_table[t]:
-                select_cols.append(f"{a}.{c} AS {c}")
+            for col, alias_name in by_table[t]:
+                select_cols.append(f"{a}.{col} AS {alias_name}")
 
         sql = "SELECT\n    " + ",\n    ".join(select_cols) + "\n" + sql_from
         df = self.query(sql)
