@@ -7,6 +7,7 @@ import pandas as pd
 from parquool import DuckPQ
 
 from .oprator import Operator
+from .util import get_ealiest_date, get_latest_date
 
 
 def parse_factor_path(path: str, sep: str = "/") -> Tuple[str, str, Optional[str]]:
@@ -95,8 +96,8 @@ class DuckPQSource(DuckPQ):
     def load(
         self,
         factor_paths: Union[str, Iterable[str]],
-        begin: str,
-        end: str,
+        begin: str = None,
+        end: str = None,
         *,
         sep: str = "/",
         join: str = "full",
@@ -166,8 +167,8 @@ class DuckPQSource(DuckPQ):
             self.register(t)
 
         # ---- compute lookback/lookforward bounds (based on base_table calendar) ----
-        begin_for_sql = begin
-        end_for_sql = end
+        begin_for_sql = begin or get_ealiest_date(self, base_table)
+        end_for_sql = end or get_latest_date(self, base_table)
         if pad_begin > 0:
             sql_begin_lb = f"""
             WITH cal AS (
@@ -337,10 +338,7 @@ class DuckPQSource(DuckPQ):
                 >>> source.save(df_long, processors=[Operator.zscore])
         """
 
-        processors = processors or [
-            Operator.zscore,
-            partial(Operator.madoutlier, dev=5),
-        ]
+        processors = processors or []
         names = "__".join(
             [
                 (

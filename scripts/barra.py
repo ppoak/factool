@@ -160,7 +160,8 @@ class ICComposer(Composer):
 
         num = (W_eff * X_eff).sum(axis=1)
         den = W_eff.sum(axis=1)
-        combo = np.where(den != 0.0, num / den, np.nan)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            combo = np.where(den != 0.0, num / den, np.nan)
 
         out = pd.DataFrame({"target": combo}, index=X2.index)
 
@@ -455,30 +456,24 @@ class BarraComposer(Composer):
 
 if __name__ == "__main__":
     # Basic Variables and parameter settings
-    BEGIN = "2015-01-01"
+    BEGIN = "2025-01-01"
     END = "2025-12-31"
     HORIZON = 5
     WINDOW = 252
-    RETURN_PATH = "out/barra_returns"
     TARGET_PATH = "target/open_post"
     WEIGHT_PATH = "barra_size/mcap_float_a"
     DATASET_PATH = os.getenv("DATASET_PATH")
-    FACTOR_DATA_PATH = os.getenv("FACTOR_DATA_PATH")
-    fs = DuckPQSource(Path(FACTOR_DATA_PATH))
-
-    if not DATASET_PATH or not FACTOR_DATA_PATH:
+    RETURN_TABLE = f"barra_returns_h{HORIZON}"
+    if not DATASET_PATH:
         raise EnvironmentError(
-            "Missing env vars: DATASET_PATH and/or FACTOR_DATA_PATH. "
+            "Missing env vars: DATASET_PATH"
             "Please set them (e.g. in .env) before running."
         )
-    return_path = Path(RETURN_PATH)
-    br = DuckPQSource(return_path)
-    br.register("barra_returns")
-
-    ds = DuckPQSource(Path(DATASET_PATH))
-    ds.register("quotes_day")
-    ds.register("instruments_info")
-    ds.register("industry_mapping")
+    fs = DuckPQSource(Path(DATASET_PATH))
+    fs.register(RETURN_TABLE)
+    fs.register("quotes_day")
+    fs.register("instruments_info")
+    fs.register("industry_mapping")
 
     size_config = ICComposerConfig(
         factor_paths=[
@@ -599,7 +594,7 @@ if __name__ == "__main__":
         weight_path=WEIGHT_PATH,
     )
 
-    industry = load_industry_dummies(source=ds, begin=BEGIN, end=END)
+    industry = load_industry_dummies(source=fs, begin=BEGIN, end=END)
     composer = BarraComposer(fs, barra_config, industry=industry)
     factor_returns = composer.run(
         min_style_coverage=0.5,
@@ -613,4 +608,4 @@ if __name__ == "__main__":
 
     factor_returns[0].index.name = "date"
     factor_returns = factor_returns[0].reset_index()
-    br.upsert("barra_returns", factor_returns, keys=["date"])
+    fs.upsert(RETURN_TABLE, factor_returns, keys=["date"])
