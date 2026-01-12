@@ -453,156 +453,164 @@ class BarraComposer(Composer):
         return out
 
 
-# Basic Variables and parameter settings
-BEGIN = "2023-01-01"
-END = "2024-03-19"
-HORIZON = 5
-WINDOW = 252
-TARGET_PATH = "target/open"
-WEIGHT_PATH = "barra_size/mcap_float_a"
-DATASET_PATH = os.getenv("DATASET_PATH")
-FACTOR_DATA_PATH = os.getenv("FACTOR_DATA_PATH")
+if __name__ == "__main__":
+    # Basic Variables and parameter settings
+    BEGIN = "2015-01-01"
+    END = "2025-12-31"
+    HORIZON = 5
+    WINDOW = 252
+    RETURN_PATH = "out/barra_returns"
+    TARGET_PATH = "target/open_post"
+    WEIGHT_PATH = "barra_size/mcap_float_a"
+    DATASET_PATH = os.getenv("DATASET_PATH")
+    FACTOR_DATA_PATH = os.getenv("FACTOR_DATA_PATH")
+    fs = DuckPQSource(Path(FACTOR_DATA_PATH))
 
+    if not DATASET_PATH or not FACTOR_DATA_PATH:
+        raise EnvironmentError(
+            "Missing env vars: DATASET_PATH and/or FACTOR_DATA_PATH. "
+            "Please set them (e.g. in .env) before running."
+        )
+    return_path = Path(RETURN_PATH)
+    br = DuckPQSource(return_path)
+    br.register("barra_returns")
 
-if not DATASET_PATH or not FACTOR_DATA_PATH:
-    raise EnvironmentError(
-        "Missing env vars: DATASET_PATH and/or FACTOR_DATA_PATH. "
-        "Please set them (e.g. in .env) before running."
+    ds = DuckPQSource(Path(DATASET_PATH))
+    ds.register("quotes_day")
+    ds.register("instruments_info")
+    ds.register("industry_mapping")
+
+    size_config = ICComposerConfig(
+        factor_paths=[
+            "barra_size/mcap_float_a",
+            "barra_size/ln_mcap_float_a",
+            "barra_size/ln_mcap_float_a_cu",
+            "barra_size/non_linear_size",
+        ],
+        begin=BEGIN,
+        end=END,
+        horizon=HORIZON,
+        window=WINDOW,
+        weight_path=WEIGHT_PATH,
     )
-ds = DuckPQSource(Path(DATASET_PATH))
-ds.register("quotes_day")
-ds.register("instruments_info")
-ds.register("industry_mapping")
-fs = DuckPQSource(Path(FACTOR_DATA_PATH))
+    value_config = ICComposerConfig(
+        factor_paths=[
+            "barra_value/total_equity_mrq_to_mktcap",
+            "barra_value/total_equity_ttm_to_mktcap",
+            "barra_value/operating_revenue_mrq_to_mktcap",
+            "barra_value/operating_revenue_ttm_to_mktcap",
+        ],
+        begin=BEGIN,
+        end=END,
+        horizon=HORIZON,
+        window=WINDOW,
+        weight_path=WEIGHT_PATH,
+    )
+    liquidity_config = ICComposerConfig(
+        factor_paths=[
+            "barra_liquidity/barra_liquidity_turnover_63d",
+            "barra_liquidity/barra_liquidity_amount_turnover",
+            "barra_liquidity/barra_liquidity_amihud_illiquidity",
+        ],
+        begin=BEGIN,
+        end=END,
+        horizon=HORIZON,
+        window=WINDOW,
+        weight_path=WEIGHT_PATH,
+    )
+    leverage_config = ICComposerConfig(
+        factor_paths=[
+            "barra_leverage/barra_book_leverage",
+            "barra_leverage/barra_market_leverage",
+        ],
+        begin=BEGIN,
+        end=END,
+        horizon=HORIZON,
+        window=WINDOW,
+        weight_path=WEIGHT_PATH,
+    )
+    volatility_config = ICComposerConfig(
+        factor_paths=[
+            "barra_volatility/barra_vol_std_252",
+            "barra_volatility/barra_beta_252",
+            "barra_volatility/barra_residvol_252",
+        ],
+        begin=BEGIN,
+        end=END,
+        horizon=HORIZON,
+        window=WINDOW,
+        weight_path=WEIGHT_PATH,
+    )
+    momentum_config = ICComposerConfig(
+        factor_paths=[
+            "barra_momentum/barra_mom_st_63d",
+            "barra_momentum/barra_mom_lt_126d_ex21d",
+            "barra_momentum/barra_rev_st_21d",
+        ],
+        begin=BEGIN,
+        end=END,
+        horizon=HORIZON,
+        window=WINDOW,
+        weight_path=WEIGHT_PATH,
+    )
+    profitability_config = ICComposerConfig(
+        factor_paths=[
+            "barra_profitability/ROA",
+            "barra_profitability/ROE",
+            "barra_profitability/asset_turnover",
+            "barra_profitability/profit_margin",
+        ],
+        begin=BEGIN,
+        end=END,
+        horizon=HORIZON,
+        window=WINDOW,
+        weight_path=WEIGHT_PATH,
+    )
+    growth_config = ICComposerConfig(
+        factor_paths=[
+            "barra_growth/net_profit_qoq_gr_mean_20",
+            "barra_growth/net_profit_qoq_gr_std_20",
+            "barra_growth/net_profit_yoy_gr_mean_20",
+            "barra_growth/net_profit_yoy_gr_std_20",
+            "barra_growth/net_profit_accel_mean_20",
+        ],
+        begin=BEGIN,
+        end=END,
+        horizon=HORIZON,
+        window=WINDOW,
+        weight_path=WEIGHT_PATH,
+    )
+    barra_config = BarraConfig(
+        begin=BEGIN,
+        end=END,
+        factor_paths={
+            "size": size_config,
+            "value": value_config,
+            "liquidity": liquidity_config,
+            "leverage": leverage_config,
+            "volatility": volatility_config,
+            "momentum": momentum_config,
+            "profitability": profitability_config,
+            "growth": growth_config,
+        },
+        horizon=HORIZON,
+        window=WINDOW,
+        target_path=TARGET_PATH,
+        weight_path=WEIGHT_PATH,
+    )
 
-size_config = ICComposerConfig(
-    factor_paths=[
-        "barra_size/mcap_float_a",
-        "barra_size/ln_mcap_float_a",
-        "barra_size/ln_mcap_float_a_cu",
-        "barra_size/non_linear_size",
-    ],
-    begin=BEGIN,
-    end=END,
-    horizon=HORIZON,
-    window=WINDOW,
-    weight_path=WEIGHT_PATH,
-)
-value_config = ICComposerConfig(
-    factor_paths=[
-        "barra_value/total_equity_mrq_to_mktcap",
-        "barra_value/total_equity_ttm_to_mktcap",
-        "barra_value/operating_revenue_mrq_to_mktcap",
-        "barra_value/operating_revenue_ttm_to_mktcap",
-    ],
-    begin=BEGIN,
-    end=END,
-    horizon=HORIZON,
-    window=WINDOW,
-    weight_path=WEIGHT_PATH,
-)
-liquidity_config = ICComposerConfig(
-    factor_paths=[
-        "barra_liquidity/barra_liquidity_turnover_63d",
-        "barra_liquidity/barra_liquidity_amount_turnover",
-        "barra_liquidity/barra_liquidity_amihud_illiquidity",
-    ],
-    begin=BEGIN,
-    end=END,
-    horizon=HORIZON,
-    window=WINDOW,
-    weight_path=WEIGHT_PATH,
-)
-leverage_config = ICComposerConfig(
-    factor_paths=[
-        "barra_leverage/barra_book_leverage",
-        "barra_leverage/barra_market_leverage",
-    ],
-    begin=BEGIN,
-    end=END,
-    horizon=HORIZON,
-    window=WINDOW,
-    weight_path=WEIGHT_PATH,
-)
-volatility_config = ICComposerConfig(
-    factor_paths=[
-        "barra_volatility/barra_vol_std_252",
-        "barra_volatility/barra_beta_252",
-        "barra_volatility/barra_residvol_252",
-    ],
-    begin=BEGIN,
-    end=END,
-    horizon=HORIZON,
-    window=WINDOW,
-    weight_path=WEIGHT_PATH,
-)
-momentum_config = ICComposerConfig(
-    factor_paths=[
-        "barra_momentum/barra_mom_st_63d",
-        "barra_momentum/barra_mom_lt_126d_ex21d",
-        "barra_momentum/barra_rev_st_21d",
-    ],
-    begin=BEGIN,
-    end=END,
-    horizon=HORIZON,
-    window=WINDOW,
-    weight_path=WEIGHT_PATH,
-)
-profitability_config = ICComposerConfig(
-    factor_paths=[
-        "barra_profitability/ROA",
-        "barra_profitability/ROE",
-        "barra_profitability/asset_turnover",
-        "barra_profitability/profit_margin",
-    ],
-    begin=BEGIN,
-    end=END,
-    horizon=HORIZON,
-    window=WINDOW,
-    weight_path=WEIGHT_PATH,
-)
-growth_config = ICComposerConfig(
-    factor_paths=[
-        "barra_growth/net_profit_qoq_gr_mean_20",
-        "barra_growth/net_profit_qoq_gr_std_20",
-        "barra_growth/net_profit_yoy_gr_mean_20",
-        "barra_growth/net_profit_yoy_gr_std_20",
-        "barra_growth/net_profit_accel_mean_20",
-    ],
-    begin=BEGIN,
-    end=END,
-    horizon=HORIZON,
-    window=WINDOW,
-    weight_path=WEIGHT_PATH,
-)
-barra_config = BarraConfig(
-    begin=BEGIN,
-    end=END,
-    factor_paths={
-        "size": size_config,
-        "value": value_config,
-        "liquidity": liquidity_config,
-        "leverage": leverage_config,
-        "volatility": volatility_config,
-        "momentum": momentum_config,
-        "profitability": profitability_config,
-        "growth": growth_config,
-    },
-    horizon=HORIZON,
-    window=WINDOW,
-    target_path=TARGET_PATH,
-    weight_path=WEIGHT_PATH,
-)
+    industry = load_industry_dummies(source=ds, begin=BEGIN, end=END)
+    composer = BarraComposer(fs, barra_config, industry=industry)
+    factor_returns = composer.run(
+        min_style_coverage=0.5,
+        drop_industry_rule="max_cap",
+        progress=True,
+        progress_every=20,
+    )
+    style_exposure = composer.style_exposure.sort_index().reset_index()  # type: ignore
+    style_exposure["date"] = style_exposure["date"].dt.strftime("%Y-%m-%d")
+    fs.upsert("barra", style_exposure, keys=["date", "code"], partition_by=["date"])
 
-
-industry = load_industry_dummies(source=ds, begin=BEGIN, end=END)
-composer = BarraComposer(fs, barra_config, industry=industry)
-factor_returns = composer.run(
-    min_style_coverage=0.5,
-    drop_industry_rule="max_cap",
-    progress=True,
-    progress_every=20,
-)
-style_exposure = composer.style_exposure.sort_index().reset_index()
-style_exposure["date"] = style_exposure["date"].dt.strftime("%Y-%m-%d")
-fs.upsert("barra", style_exposure, keys=["date", "code"], partition_by=["date"])
+    factor_returns[0].index.name = "date"
+    factor_returns = factor_returns[0].reset_index()
+    br.upsert("barra_returns", factor_returns, keys=["date"])
