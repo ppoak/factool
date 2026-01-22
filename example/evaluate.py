@@ -3,10 +3,17 @@ import dotenv
 from pathlib import Path
 from logging import Logger
 from dataclasses import dataclass
-from typing import Any, Dict, List, Tuple, Union, Optional, Literal
+from typing import Any, Dict, List, Tuple, Union, Optional
 
 import numpy as np
 import pandas as pd
+import statsmodels.api as sm
+from scipy import stats
+from statsmodels.stats.diagnostic import acorr_ljungbox
+from IPython.display import display, Markdown
+import plotly.graph_objects as go
+import plotly.express as px
+from plotly.subplots import make_subplots
 
 from openpyxl.utils import get_column_letter
 from openpyxl.drawing.line import LineProperties
@@ -18,9 +25,6 @@ from parquool import setup_logger
 
 from factool import DuckPQSource, Evaluator
 
-import statsmodels.api as sm
-from statsmodels.stats.diagnostic import acorr_ljungbox
-from scipy import stats
 
 dotenv.load_dotenv()
 
@@ -28,7 +32,7 @@ dotenv.load_dotenv()
 FactorPath = str
 
 
-def safe_float(x: Any) -> float:
+def _safe_float(x: Any) -> float:
     try:
         if x is None:
             return np.nan
@@ -39,9 +43,8 @@ def safe_float(x: Any) -> float:
         return np.nan
 
 
-def get_feasible(
-    data_source: DuckPQSource, begin: str, end: str, min_list_days: int = 90
-):
+def _get_feasible(source: DuckPQSource, begin: str, end: str, min_list_days: int = 90):
+    source.register("instruments_info")
     sql = f"""
     SELECT
         q.date AS date,
@@ -59,7 +62,7 @@ def get_feasible(
     WHERE q.date >= '{begin}' AND q.date <= '{end}'
     """
 
-    data = data_source.query(sql)
+    data = source.query(sql)
     data["date"] = pd.to_datetime(data["date"])
 
     feasible = data.set_index(["date", "code"]).sort_index()
@@ -71,7 +74,7 @@ class BacktestParams:
     factor_paths: List[str]
     begin: str
     end: str
-    target_path: str = "target/open"
+    target_path: str = "quotes_day/open_post"
     horizon: int = 5
     baseline_factors: Optional[Union[str, List[str]]] = None
 
@@ -102,7 +105,7 @@ class BacktestParams:
     )
 
 
-def grenerate_test_key(param: BacktestParams) -> str:
+def _generate_test_key(param: BacktestParams) -> str:
     paths = (
         param.factor_paths
         if isinstance(param.factor_paths, list)
@@ -122,7 +125,7 @@ def grenerate_test_key(param: BacktestParams) -> str:
     )
 
 
-def newey_west_tstat(x: pd.Series, lags: Optional[int] = None) -> float:
+def _newey_west_tstat(x: pd.Series, lags: Optional[int] = None) -> float:
     """
     Newey-West t-stat for mean(x) with HAC covariance.
     Uses statsmodels OLS of x on constant.
@@ -143,7 +146,7 @@ def newey_west_tstat(x: pd.Series, lags: Optional[int] = None) -> float:
         return np.nan
 
 
-def ic_summary_stats(ic: pd.Series) -> Dict[str, Any]:
+def _ic_summary_stats(ic: pd.Series) -> Dict[str, Any]:
     """
     IC summary including win rate, ICIR, tails, and HAC t-stat.
     """
@@ -170,7 +173,7 @@ def ic_summary_stats(ic: pd.Series) -> Dict[str, Any]:
     sd = float(s.std(ddof=1)) if n > 1 else np.nan
     ir = mu / sd if sd and np.isfinite(sd) and sd > 0 else np.nan
     t = mu / (sd / np.sqrt(n)) if sd and np.isfinite(sd) and sd > 0 else np.nan
-    t_nw = newey_west_tstat(s)
+    t_nw = _newey_west_tstat(s)
 
     win_rate = float((s > 0).mean())
     p05, p50, p95 = [float(v) for v in np.nanpercentile(s.values, [5, 50, 95])]
@@ -199,7 +202,7 @@ def ic_summary_stats(ic: pd.Series) -> Dict[str, Any]:
     }
 
 
-def ic_stability_tests(
+def _ic_stability_tests(
     ic: pd.Series, roll_window: int, acf_lags: int, break_k: int = 1
 ) -> Dict[str, Any]:
     """
@@ -228,18 +231,18 @@ def ic_stability_tests(
     roll_std = s.rolling(roll_window).std(ddof=1)
     roll_ir = roll_mean / roll_std
 
-    out["ic_roll_mean_std"] = safe_float(roll_mean.dropna().std(ddof=1))
-    out["ic_roll_ir_std"] = safe_float(roll_ir.dropna().std(ddof=1))
+    out["ic_roll_mean_std"] = _safe_float(roll_mean.dropna().std(ddof=1))
+    out["ic_roll_ir_std"] = _safe_float(roll_ir.dropna().std(ddof=1))
 
     # Autocorrelation tests
     try:
-        out["ic_acf1"] = safe_float(s.autocorr(lag=1))
+        out["ic_acf1"] = _safe_float(s.autocorr(lag=1))
     except Exception:
         out["ic_acf1"] = np.nan
 
     try:
         lb = acorr_ljungbox(s.values, lags=[min(acf_lags, len(s) - 1)], return_df=True)
-        out["ic_lb_pvalue"] = safe_float(lb["lb_pvalue"].iloc[-1])
+        out["ic_lb_pvalue"] = _safe_float(lb["lb_pvalue"].iloc[-1])
     except Exception:
         out["ic_lb_pvalue"] = np.nan
 
@@ -275,8 +278,8 @@ def ic_stability_tests(
         out["ic_break_pvalue"] = np.nan
     else:
         out["ic_best_break_date"] = str(idx[best["split"]].date())
-        out["ic_break_stat"] = safe_float(best["stat"])
-        out["ic_break_pvalue"] = safe_float(best["pvalue"])
+        out["ic_break_stat"] = _safe_float(best["stat"])
+        out["ic_break_pvalue"] = _safe_float(best["pvalue"])
 
     return out
 
@@ -287,7 +290,7 @@ def _extract_factor_group_columns(
     return [f"{factor_name}({i + 1})" for i in range(n_groups)]
 
 
-def group_monotonicity_tests(
+def _group_monotonicity_tests(
     e: Evaluator,
     factor_name: str,
     n_groups: int,
@@ -355,7 +358,7 @@ def group_monotonicity_tests(
 
     def mean_t(s: pd.Series) -> Tuple[float, float]:
         if len(s) < 30:
-            return (safe_float(s.mean()), np.nan)
+            return (_safe_float(s.mean()), np.nan)
         mu = float(s.mean())
         sd = float(s.std(ddof=1))
         t = mu / (sd / np.sqrt(len(s))) if sd > 0 else np.nan
@@ -363,14 +366,14 @@ def group_monotonicity_tests(
 
     spearman_mean, spearman_t = mean_t(spears)
     kendall_mean, kendall_t = mean_t(kendalls)
-    slope_mean = safe_float(slopes.mean())
-    slope_t_nw = newey_west_tstat(slopes)
+    slope_mean = _safe_float(slopes.mean())
+    slope_t_nw = _newey_west_tstat(slopes)
 
     return {
         "mono_spearman_mean": spearman_mean,
         "mono_spearman_t": spearman_t,
         "mono_spearman_win_rate": (
-            safe_float((spears > 0).mean()) if len(spears) else np.nan
+            _safe_float((spears > 0).mean()) if len(spears) else np.nan
         ),
         "mono_slope_mean": slope_mean,
         "mono_slope_t_nw": slope_t_nw,
@@ -379,7 +382,7 @@ def group_monotonicity_tests(
     }
 
 
-def run_evaluator(evaluator: Evaluator, backtest_params: BacktestParams):
+def _run_evaluator(evaluator: Evaluator, backtest_params: BacktestParams):
     factor_names = evaluator._factor_df.columns.to_list()
     result: Dict[str, Any] = {}
 
@@ -398,8 +401,8 @@ def run_evaluator(evaluator: Evaluator, backtest_params: BacktestParams):
     ic_stab_rows = []
     for col in ic_df.columns:
         s = ic_df[col]
-        summ = ic_summary_stats(s)
-        stab = ic_stability_tests(
+        summ = _ic_summary_stats(s)
+        stab = _ic_stability_tests(
             s,
             backtest_params.ic_roll_window,
             backtest_params.ic_acf_lags,
@@ -442,7 +445,7 @@ def run_evaluator(evaluator: Evaluator, backtest_params: BacktestParams):
     # Monotonicity tests (per factor)
     mono_rows = []
     for factor_name in factor_names:
-        mono = group_monotonicity_tests(
+        mono = _group_monotonicity_tests(
             evaluator,
             factor_name=factor_name,
             n_groups=backtest_params.n_groups,
@@ -454,9 +457,8 @@ def run_evaluator(evaluator: Evaluator, backtest_params: BacktestParams):
     return result
 
 
-def run_test(
+def _run_test(
     factor_source: DuckPQSource,
-    data_source: DuckPQSource,
     backtest_params: BacktestParams,
     logger: Logger,
 ):
@@ -481,8 +483,8 @@ def run_test(
             begin=backtest_params.begin,
             end=backtest_params.end,
         )
-    feasible = get_feasible(
-        data_source=data_source,
+    feasible = _get_feasible(
+        source=factor_source,
         begin=backtest_params.begin,
         end=target_price.index.levels[0].max(),
         min_list_days=backtest_params.min_list_days,
@@ -509,7 +511,7 @@ def run_test(
     )
 
     result: Dict[str, Dict[str, Any]] = {}
-    result["raw"] = run_evaluator(evaluator, backtest_params)
+    result["raw"] = _run_evaluator(evaluator, backtest_params)
 
     # Incremental tests vs baseline factors
     if backtest_params.baseline_factors:
@@ -554,7 +556,7 @@ def run_test(
             logger=logger,
         )
         result["baseline_factor"] = baseline_factor_data
-        result["inc"] = run_evaluator(
+        result["inc"] = _run_evaluator(
             evaluator_residual, backtest_params=backtest_params
         )
 
@@ -567,17 +569,15 @@ def run_test(
 
 def run(
     factor_source: DuckPQSource,
-    data_source: DuckPQSource,
     backtest_params: List[BacktestParams],
 ) -> Dict[str, Any]:
     logger = setup_logger("FactorEvaluator")
     results: Dict[str, Dict[str, Any]] = {}
     for i, params in enumerate(backtest_params):
-        key = grenerate_test_key(params)
+        key = _generate_test_key(params)
         logger.info(f"Evaluator start <{key}>")
-        results[key] = run_test(
+        results[key] = _run_test(
             factor_source=factor_source,
-            data_source=data_source,
             backtest_params=params,
             logger=logger,
         )
@@ -613,7 +613,7 @@ def _to_1col_df(x, col_name: str) -> pd.DataFrame:
     return pd.DataFrame({col_name: list(x)})
 
 
-def save(save_path: Union[Path, str], results: Dict[str, Dict]):
+def _clean(results: Dict[str, Dict]) -> Dict[str, Dict]:
     blocks: List[pd.DataFrame] = []
 
     for i, (test_key, res) in enumerate(results.items(), start=1):
@@ -664,7 +664,320 @@ def save(save_path: Union[Path, str], results: Dict[str, Dict]):
     summary = pd.concat(blocks, axis=0, ignore_index=True)
     summary.index = pd.RangeIndex(1, len(summary) + 1, step=1, name="index")
     correlation = results["correlation"]
+    return summary, correlation
 
+
+def show(results: Dict[str, Dict], test_key: Optional[str] = None, width: str = "100%"):
+
+    # ---------------- helpers ----------------
+    def _ensure_dt_index(df: pd.DataFrame) -> pd.DataFrame:
+        if df is None or getattr(df, "empty", True):
+            return df
+        out = df.copy()
+        if not isinstance(out.index, pd.DatetimeIndex):
+            try:
+                out.index = pd.to_datetime(out.index)
+            except Exception:
+                pass
+        return out.sort_index()
+
+    def _to_numeric_df(df: pd.DataFrame) -> pd.DataFrame:
+        if df is None or getattr(df, "empty", True):
+            return df
+        out = df.copy()
+        for c in out.columns:
+            out[c] = pd.to_numeric(out[c], errors="coerce")
+        return out
+
+    def _coerce_columns_to_str(df: pd.DataFrame) -> pd.DataFrame:
+        if df is None or getattr(df, "empty", True):
+            return df
+        out = df.copy()
+        if isinstance(out.columns, pd.MultiIndex):
+            out.columns = pd.MultiIndex.from_tuples(
+                [(str(a), str(b)) for a, b in out.columns]
+            )
+        else:
+            out.columns = out.columns.map(str)
+        return out
+
+    def _split_raw_inc(df: pd.DataFrame):
+        if df is None or df.empty:
+            return None, None
+
+        df = _coerce_columns_to_str(df)
+
+        if isinstance(df.columns, pd.MultiIndex):
+            lvl0 = df.columns.get_level_values(0)
+            raw = df.loc[:, lvl0.str.contains("raw", case=False, na=False)]
+            inc = df.loc[:, lvl0.str.contains("inc", case=False, na=False)]
+            raw = raw.droplevel(0, axis=1) if not raw.empty else None
+            inc = inc.droplevel(0, axis=1) if not inc.empty else None
+            # 若 level0 并非 raw/inc，而是别的（比如 test 名），兜底：整体当 raw
+            if raw is None and inc is None:
+                raw = df
+            return raw, inc
+
+        cols = pd.Index(df.columns)
+        has_raw = cols.str.contains("raw", case=False, na=False).any()
+        has_inc = cols.str.contains("inc", case=False, na=False).any()
+        if has_raw:
+            raw = df.loc[:, cols.str.contains("raw", case=False, na=False)]
+        else:
+            raw = None
+        if has_inc:
+            inc = df.loc[:, cols.str.contains("inc", case=False, na=False)]
+        else:
+            inc = None
+        if raw is None and inc is None:
+            raw = df
+        return raw, inc
+
+    def _plot_timeseries(
+        df: pd.DataFrame, title: str, y_title: str = "", height: int = 340
+    ):
+        df = _ensure_dt_index(_to_numeric_df(df))
+        fig = go.Figure()
+        for c in df.columns:
+            fig.add_trace(go.Scatter(x=df.index, y=df[c], mode="lines", name=str(c)))
+        fig.update_layout(
+            title=title,
+            height=height,
+            template="plotly_white",
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
+            margin=dict(l=10, r=10, t=60, b=10),
+        )
+        fig.update_yaxes(title=y_title, zeroline=True)
+        return fig
+
+    def _plot_ic_panel(ic_df: pd.DataFrame, title: str):
+        ic_df = _ensure_dt_index(_to_numeric_df(ic_df))
+        cols_ic = [c for c in ic_df.columns if "cumsum" not in str(c).lower()]
+        cols_cs = [c for c in ic_df.columns if "cumsum" in str(c).lower()]
+        fig = make_subplots(
+            rows=2,
+            cols=1,
+            shared_xaxes=True,
+            vertical_spacing=0.08,
+            subplot_titles=("IC", "IC Cumsum"),
+        )
+        for c in cols_ic:
+            fig.add_trace(
+                go.Scatter(x=ic_df.index, y=ic_df[c], mode="lines", name=str(c)),
+                row=1,
+                col=1,
+            )
+        for c in cols_cs:
+            fig.add_trace(
+                go.Scatter(x=ic_df.index, y=ic_df[c], mode="lines", name=str(c)),
+                row=2,
+                col=1,
+            )
+
+        fig.add_hline(
+            y=0, line_width=1, line_dash="dot", line_color="gray", row=1, col=1
+        )
+        fig.update_layout(
+            title=title,
+            height=540,
+            template="plotly_white",
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
+            margin=dict(l=10, r=10, t=70, b=10),
+        )
+        return fig
+
+    def _parse_rank(x):
+        import re
+
+        s = str(x)
+        m = re.findall(r"\d+", s)
+        return int(m[-1]) if m else None
+
+    def _make_long_short(group_values: pd.DataFrame):
+        if group_values is None or group_values.empty:
+            return None
+        gv = _ensure_dt_index(_to_numeric_df(group_values))
+        cols = list(gv.columns)
+        ranks = [_parse_rank(c) for c in cols]
+        if all(r is None for r in ranks):
+            return None
+        order = np.argsort([r if r is not None else -(10**9) for r in ranks])
+        low_col = cols[order[0]]
+        high_col = cols[order[-1]]
+        ls = gv[high_col] - gv[low_col]
+        return pd.DataFrame({f"LS({high_col}-{low_col})": ls})
+
+    def _mean_return_bar(group_values: pd.DataFrame, title: str, height: int = 320):
+        gv = _ensure_dt_index(_to_numeric_df(group_values))
+        rets = gv.pct_change()
+        mean_ret = rets.mean().dropna()
+        fig = px.bar(
+            x=mean_ret.index.astype(str),
+            y=mean_ret.values,
+            title=title,
+            labels={"x": "Group", "y": "Mean Return"},
+            height=height,
+        )
+        fig.update_layout(template="plotly_white", margin=dict(l=10, r=10, t=60, b=10))
+        return fig
+
+    def _display_table(df: pd.DataFrame, title: str):
+        display(Markdown(f"### {title}"))
+        if df is None or getattr(df, "empty", True):
+            display(Markdown("*(empty)*"))
+            return
+        sty = df.style.format(precision=4, na_rep="—")
+        sty = sty.set_properties(**{"text-align": "right"})
+        display(sty)
+
+    def _display_fig(fig):
+        fig.show()
+
+    # ---------------- notebook wide ----------------
+    display(
+        Markdown(
+            f"""
+<style>
+.output_wrapper, .output {{ width: {width} !important; max-width: {width} !important; }}
+</style>
+"""
+        )
+    )
+
+    summary, corr = _clean(results)
+    # ---------------- show summary first ----------------
+    _display_table(summary, "Summary")
+
+    # ---------------- choose which tests to show ----------------
+    test_keys = [k for k in results.keys() if k not in ("correlation", "summary")]
+    if not test_keys:
+        display(Markdown("*(no tests to show)*"))
+        return
+
+    if test_key is not None:
+        if test_key not in results:
+            raise KeyError(
+                f"test_key={test_key} not in results, available={list(results.keys())}"
+            )
+        test_keys = [test_key]
+
+    # ---------------- per test ----------------
+    for tk in test_keys:
+        res = results[tk]
+        rr = res.get("raw", {})
+        ri = res.get("inc", None)
+
+        display(Markdown(f"# {tk}"))
+
+        # 1) IC
+        ic_raw = pd.concat(
+            [rr.get("ic_raw")] + ([] if ri is None else [ri.get("ic_raw")]),
+            axis=1,
+        )
+        ic_raw = _ensure_dt_index(ic_raw)
+        display(Markdown("## IC"))
+        if ic_raw is None or ic_raw.empty:
+            display(Markdown("*(empty)*"))
+        else:
+            ic_raw = pd.concat([ic_raw, ic_raw.cumsum().add_suffix("_cumsum")], axis=1)
+            _display_fig(_plot_ic_panel(ic_raw, title=f"{tk} | IC & Cumsum"))
+        # 2) Group values (raw/inc 都画)
+        group_values = pd.concat(
+            [rr.get("group_values")] + ([] if ri is None else [ri.get("group_values")]),
+            axis=1,
+        )
+        group_values = _ensure_dt_index(group_values)
+        display(Markdown("## 分层净值（Group Values）"))
+
+        if group_values is None or group_values.empty:
+            display(Markdown("*(empty)*"))
+        else:
+            gv_raw, gv_inc = _split_raw_inc(group_values)
+
+            # raw
+            if gv_raw is not None and not gv_raw.empty:
+                _display_fig(
+                    _plot_timeseries(gv_raw, f"{tk} | Group NAV (raw)", y_title="NAV")
+                )
+                ls = _make_long_short(gv_raw)
+                if ls is not None:
+                    _display_fig(
+                        _plot_timeseries(
+                            ls,
+                            f"{tk} | Long-Short NAV (raw)",
+                            y_title="NAV",
+                            height=300,
+                        )
+                    )
+                _display_fig(
+                    _mean_return_bar(gv_raw, f"{tk} | Mean Return by Group (raw)")
+                )
+
+            # inc
+            if gv_inc is not None and not gv_inc.empty:
+                _display_fig(
+                    _plot_timeseries(gv_inc, f"{tk} | Group NAV (inc)", y_title="NAV")
+                )
+                ls = _make_long_short(gv_inc)
+                if ls is not None:
+                    _display_fig(
+                        _plot_timeseries(
+                            ls,
+                            f"{tk} | Long-Short NAV (inc)",
+                            y_title="NAV",
+                            height=300,
+                        )
+                    )
+                _display_fig(
+                    _mean_return_bar(gv_inc, f"{tk} | Mean Return by Group (inc)")
+                )
+
+        # 3) Group performance（raw/inc 都展示：拆开更直观）
+        group_performance = pd.concat(
+            [rr.get("group_performance")]
+            + ([] if ri is None else [ri.get("group_performance")]),
+            axis=1,
+        )
+        display(Markdown("## 分层绩效评估（Group Performance）"))
+
+        if group_performance is None or group_performance.empty:
+            display(Markdown("*(empty)*"))
+        else:
+            gp_raw, gp_inc = _split_raw_inc(group_performance)
+
+            if gp_raw is not None and not gp_raw.empty:
+                _display_table(gp_raw, "Group Performance (raw)")
+            else:
+                # 如果没法 split（比如没有 raw/inc 标识），就整体展示一次
+                _display_table(group_performance, "Group Performance")
+
+            if gp_inc is not None and not gp_inc.empty:
+                _display_table(gp_inc, "Group Performance (inc)")
+
+    # 4) correlation
+    corr_df = None
+    if isinstance(corr, pd.DataFrame):
+        corr_df = corr
+    if corr_df is not None and not corr_df.empty:
+        display(Markdown("# Correlation"))
+        fig = px.imshow(
+            corr_df.values,
+            x=corr_df.columns.astype(str),
+            y=corr_df.index.astype(str),
+            color_continuous_scale="RdBu",
+            zmin=-1,
+            zmax=1,
+            title="Correlation Heatmap",
+            height=520,
+        )
+        fig.update_layout(
+            template="plotly_white", margin=dict(l=10, r=10, t=70, b=10)
+        )
+        fig.show()
+
+
+def save(save_path: Union[Path, str], results: Dict[str, Dict]):
+    summary, correlation = _clean(results)
     with pd.ExcelWriter(save_path, engine="openpyxl") as writer:
         # Drawing charts in original excel file
         wb = writer.book
@@ -834,16 +1147,15 @@ def save(save_path: Union[Path, str], results: Dict[str, Dict]):
 
 
 if __name__ == "__main__":
-    DATASET_PATH = os.getenv("DATASET_PATH")
     FACTOR_DATA_PATH = os.getenv("FACTOR_DATA_PATH")
-    if not DATASET_PATH or not FACTOR_DATA_PATH:
+    if not FACTOR_DATA_PATH:
         raise EnvironmentError(
             "Missing env vars: DATASET_PATH and/or FACTOR_DATA_PATH. "
             "Please set them (e.g. in .env) before running."
         )
-    data_source = DuckPQSource(Path(DATASET_PATH))
-    data_source.register("quotes_day")
-    data_source.register("instruments_info")
+    factor_source = DuckPQSource(Path(FACTOR_DATA_PATH))
+    factor_source.register("quotes_day")
+    factor_source.register("instruments_info")
 
     params = [
         BacktestParams(
@@ -864,8 +1176,9 @@ if __name__ == "__main__":
         for name in ["example_factor_name"]
     ]
 
-    output_path = "highfreq_skew_kurt__batch2.xlsx"  # CONFIG: Placeholder for output path
+    output_path = (
+        "highfreq_skew_kurt__batch2.xlsx"  # CONFIG: Placeholder for output path
+    )
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
-    factor_source = DuckPQSource(Path(FACTOR_DATA_PATH))
-    results = run(factor_source, data_source, params)
+    results = run(factor_source, params)
     save(output_path, results)

@@ -24,13 +24,14 @@ dependencies = [
     "markdown>=3.9",
     "joblib>=1.5.2",
     "numpy>=2.2",
-    "parquool>=0.0.9",
+    "parquool>=0.0.11",
     "matplotlib>=3.9",
     "openpyxl>=3.0",
     "quool>=7.0.11",
     "scipy>=1.16.3",
     "statsmodels>=0.14.5",
     "jupyterlab>=4.4.10",
+    "plotly>=6.5.2",
 ]
 
 [tool.setuptools]

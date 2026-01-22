@@ -612,6 +612,7 @@ dependencies = [
     { name = "openpyxl" },
     { name = "pandas" },
     { name = "parquool" },
+    { name = "plotly" },
     { name = "quool" },
     { name = "scipy" },
     { name = "statsmodels" },
@@ -628,7 +629,8 @@ requires-dist = [
     { name = "numpy", specifier = ">=2.2" },
     { name = "openpyxl", specifier = ">=3.0" },
     { name = "pandas", specifier = ">=2.3.2" },
-    { name = "parquool", specifier = ">=0.0.9" },
+    { name = "parquool", specifier = ">=0.0.11" },
+    { name = "plotly", specifier = ">=6.5.2" },
     { name = "quool", specifier = ">=7.0.11" },
     { name = "scipy", specifier = ">=1.16.3" },
     { name = "statsmodels", specifier = ">=0.14.5" },
@@ -1434,6 +1436,15 @@ wheels = [
 ]
 
 [[package]]
+name = "narwhals"
+version = "2.15.0"
+source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }
+sdist = { url = "https://pypi.tuna.tsinghua.edu.cn/packages/47/6d/b57c64e5038a8cf071bce391bb11551657a74558877ac961e7fa905ece27/narwhals-2.15.0.tar.gz", hash = "sha256:a9585975b99d95084268445a1fdd881311fa26ef1caa18020d959d5b2ff9a965", size = 603479, upload-time = "2026-01-06T08:10:13.27Z" }
+wheels = [
+    { url = "https://pypi.tuna.tsinghua.edu.cn/packages/3d/2e/cf2ffeb386ac3763526151163ad7da9f1b586aac96d2b4f7de1eaebf0c61/narwhals-2.15.0-py3-none-any.whl", hash = "sha256:cbfe21ca19d260d9fd67f995ec75c44592d1f106933b03ddd375df7ac841f9d6", size = 432856, upload-time = "2026-01-06T08:10:11.511Z" },
+]
+
+[[package]]
 name = "nbclient"
 version = "0.10.2"
 source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }
@@ -1709,7 +1720,7 @@ wheels = [
 
 [[package]]
 name = "parquool"
-version = "0.0.9"
+version = "0.0.11"
 source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }
 dependencies = [
     { name = "dotenv" },
@@ -1722,9 +1733,9 @@ dependencies = [
     { name = "requests" },
     { name = "retry" },
 ]
-sdist = { url = "https://pypi.tuna.tsinghua.edu.cn/packages/c7/93/64e83a6c27bf1bc78163d23469741f73e0a67bb0085f3c26160ae467a0d4/parquool-0.0.9.tar.gz", hash = "sha256:884afa3a8cdd3c22b9cc75496885d5efe8ed829db414529a5dc2e65723eba3e3", size = 41995, upload-time = "2025-12-07T09:03:39.4Z" }
+sdist = { url = "https://pypi.tuna.tsinghua.edu.cn/packages/49/50/b1cf18bf65412c4c389c7ec73954045d325425d4669377bc83b33acc5a4c/parquool-0.0.11.tar.gz", hash = "sha256:863d8f666bae87f7044c2d85161aa89e081e46157864f25aacaa537d0b88e610", size = 42863, upload-time = "2026-01-22T04:52:04.164Z" }
 wheels = [
-    { url = "https://pypi.tuna.tsinghua.edu.cn/packages/fb/7b/eb3ad25ceaed914d6a0dbb9ba72f28836d56c7275f78cfe8a8776bd813c9/parquool-0.0.9-py3-none-any.whl", hash = "sha256:1707326e828e7d74f02b85eccc7bbb10159c1182722a2623fa7a25aa8639697e", size = 39218, upload-time = "2025-12-07T09:03:40.481Z" },
+    { url = "https://pypi.tuna.tsinghua.edu.cn/packages/13/64/7a2209e0a6bcb3b75ce73cc167918cee0800c6f8351346c34695051fcf31/parquool-0.0.11-py3-none-any.whl", hash = "sha256:70368bd79853a75be19de4e87d7c466eb1c75b20bf40badcec15f21a8ebddf46", size = 39873, upload-time = "2026-01-22T04:52:03.365Z" },
 ]
 
 [[package]]
@@ -1851,6 +1862,19 @@ source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }
 sdist = { url = "https://pypi.tuna.tsinghua.edu.cn/packages/61/33/9611380c2bdb1225fdef633e2a9610622310fed35ab11dac9620972ee088/platformdirs-4.5.0.tar.gz", hash = "sha256:70ddccdd7c99fc5942e9fc25636a8b34d04c24b335100223152c2803e4063312", size = 21632, upload-time = "2025-10-08T17:44:48.791Z" }
 wheels = [
     { url = "https://pypi.tuna.tsinghua.edu.cn/packages/73/cb/ac7874b3e5d58441674fb70742e6c374b28b0c7cb988d37d991cde47166c/platformdirs-4.5.0-py3-none-any.whl", hash = "sha256:e578a81bb873cbb89a41fcc904c7ef523cc18284b7e3b3ccf06aca1403b7ebd3", size = 18651, upload-time = "2025-10-08T17:44:47.223Z" },
+]
+
+[[package]]
+name = "plotly"
+version = "6.5.2"
+source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }
+dependencies = [
+    { name = "narwhals" },
+    { name = "packaging" },
+]
+sdist = { url = "https://pypi.tuna.tsinghua.edu.cn/packages/e3/4f/8a10a9b9f5192cb6fdef62f1d77fa7d834190b2c50c0cd256bd62879212b/plotly-6.5.2.tar.gz", hash = "sha256:7478555be0198562d1435dee4c308268187553cc15516a2f4dd034453699e393", size = 7015695, upload-time = "2026-01-14T21:26:51.222Z" }
+wheels = [
+    { url = "https://pypi.tuna.tsinghua.edu.cn/packages/8a/67/f95b5460f127840310d2187f916cf0023b5875c0717fdf893f71e1325e87/plotly-6.5.2-py3-none-any.whl", hash = "sha256:91757653bd9c550eeea2fa2404dba6b85d1e366d54804c340b2c874e5a7eb4a4", size = 9895973, upload-time = "2026-01-14T21:26:47.135Z" },
 ]
 
 [[package]]
