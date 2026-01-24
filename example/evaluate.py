@@ -10,15 +10,6 @@ import pandas as pd
 import statsmodels.api as sm
 from scipy import stats
 from statsmodels.stats.diagnostic import acorr_ljungbox
-from IPython.display import display, Markdown
-import plotly.graph_objects as go
-import plotly.express as px
-from plotly.subplots import make_subplots
-
-from openpyxl.utils import get_column_letter
-from openpyxl.drawing.line import LineProperties
-from openpyxl.formatting.rule import ColorScaleRule
-from openpyxl.chart import BarChart, LineChart, Reference
 
 import quool
 from parquool import setup_logger
@@ -391,14 +382,11 @@ def _run_evaluator(evaluator: Evaluator, backtest_params: BacktestParams):
     result["mean_coverage"] = evaluator.factor_coverage.mean()
 
     # IC and IC tests
-    evaluator.get_info_coef(
-        method=backtest_params.ic_method,
-    )
+    evaluator.get_info_coef(method=backtest_params.ic_method)
     ic_df = evaluator.info_coef.copy()
     result["ic_raw"] = ic_df
 
-    ic_summ_rows = []
-    ic_stab_rows = []
+    ic_summ_rows, ic_stab_rows = [], []
     for col in ic_df.columns:
         s = ic_df[col]
         summ = _ic_summary_stats(s)
@@ -416,8 +404,7 @@ def _run_evaluator(evaluator: Evaluator, backtest_params: BacktestParams):
 
     # Group returns
     evaluator.get_group_returns(
-        n=backtest_params.n_groups,
-        mode=backtest_params.bucketing_mode,
+        n=backtest_params.n_groups, mode=backtest_params.bucketing_mode
     )
 
     factor_return = evaluator.sorted_factor_return
@@ -426,10 +413,14 @@ def _run_evaluator(evaluator: Evaluator, backtest_params: BacktestParams):
         + [factor_return],
         axis=1,
     )
+    group_returns.index.name = "date"
+
+    result["group_returns"] = group_returns
+
     group_values = (group_returns.fillna(0) + 1).cumprod()
     group_values.index.name = "date"
-    group_performance = group_values.apply(quool.Evaluator.evaluate)
 
+    group_performance = group_values.apply(quool.Evaluator.evaluate)
     group_returns_mean = group_returns.mean()
     group_returns_t = group_returns_mean / (
         group_returns.std(ddof=1) / np.sqrt(group_returns.shape[0])
@@ -453,6 +444,7 @@ def _run_evaluator(evaluator: Evaluator, backtest_params: BacktestParams):
         )
         mono_rows.append(pd.Series(mono, name=factor_name))
     result["monotonicity"] = pd.DataFrame(mono_rows)
+
     result["factor"] = evaluator._factor_df
     return result
 
@@ -573,6 +565,7 @@ def run(
 ) -> Dict[str, Any]:
     logger = setup_logger("FactorEvaluator")
     results: Dict[str, Dict[str, Any]] = {}
+
     for i, params in enumerate(backtest_params):
         key = _generate_test_key(params)
         logger.info(f"Evaluator start <{key}>")
@@ -583,6 +576,7 @@ def run(
         )
         if i > 0:
             del results[key]["baseline_factor"]
+
     factor_total = pd.concat(
         [list(results.values())[0]["baseline_factor"]]
         + [res["raw"]["factor"] for res in results.values()]
@@ -591,10 +585,12 @@ def run(
         ),
         axis=1,
     )
-    results["correlation"] = factor_total.groupby("date").corr().groupby(level=1).mean()
-    results["correlation"] = results["correlation"].reindex(
-        results["correlation"].columns
-    )
+
+    # index: (date, factor1), columns: factor2
+    corr_ts = factor_total.groupby("date").corr()
+    corr_ts = corr_ts.reindex(corr_ts.columns, level=1)
+    results["correlation"] = corr_ts
+
     return results
 
 
@@ -613,21 +609,23 @@ def _to_1col_df(x, col_name: str) -> pd.DataFrame:
     return pd.DataFrame({col_name: list(x)})
 
 
-def _clean(results: Dict[str, Dict]) -> Dict[str, Dict]:
+def _clean(results: Dict[str, Dict]) -> Tuple[pd.DataFrame, pd.DataFrame]:
     blocks: List[pd.DataFrame] = []
 
     for i, (test_key, res) in enumerate(results.items(), start=1):
         if test_key == "correlation":
             continue
+
         for restype in ["raw", "inc"]:
-            rr = res[restype]
-            if res[restype] is None:
+            rr = res.get(restype)
+            if rr is None:
                 continue
-            cov = rr.get("mean_coverage")  # often Series
-            ic_summ = rr.get("ic_summary")  # DF
-            ic_stab = rr.get("ic_stability")  # DF
-            mono = rr.get("monotonicity")  # DF
-            group_ret = rr.get("group_return_summary")  # DF
+
+            cov = rr.get("mean_coverage")
+            ic_summ = rr.get("ic_summary")
+            ic_stab = rr.get("ic_stability")
+            mono = rr.get("monotonicity")
+
             cov_df = _to_1col_df(cov, "coverage")
             ic_summ_df = (
                 ic_summ.copy() if isinstance(ic_summ, pd.DataFrame) else pd.DataFrame()
@@ -636,40 +634,41 @@ def _clean(results: Dict[str, Dict]) -> Dict[str, Dict]:
                 ic_stab.copy() if isinstance(ic_stab, pd.DataFrame) else pd.DataFrame()
             )
             mono_df = mono.copy() if isinstance(mono, pd.DataFrame) else pd.DataFrame()
-            group_ret.index = [
-                f"factor_return({i})" for i in range(1, len(group_ret))
-            ] + ["factor_return"]
-            gr_df = group_ret.loc[:, "mean"].add_suffix("_mean")
+
             base_index = None
-            for df_ in [ic_summ_df, ic_stab_df, mono_df, cov_df, group_ret]:
+            for df_ in [ic_summ_df, ic_stab_df, mono_df, cov_df]:
                 if isinstance(df_, pd.DataFrame) and len(df_) > 0:
                     base_index = df_.index
                     break
             if base_index is None:
                 continue
-            gr_df = _to_1col_df(gr_df, base_index).T
+
             big = pd.concat(
-                [cov_df, ic_summ_df, ic_stab_df, mono_df, gr_df],
+                [cov_df, ic_summ_df, ic_stab_df, mono_df],
                 axis=1,
                 join="outer",
             )
             big.insert(0, "test_key", test_key)
             big = big.reset_index().rename(columns={"index": "factor"})
             big.insert(2, "test_index", i)
+            big.insert(3, "restype", restype)
             blocks.append(big)
 
-    if not blocks:
-        return pd.DataFrame()
+    summary = pd.concat(blocks, axis=0, ignore_index=True) if blocks else pd.DataFrame()
+    if not summary.empty:
+        summary.index = pd.RangeIndex(1, len(summary) + 1, step=1, name="index")
 
-    summary = pd.concat(blocks, axis=0, ignore_index=True)
-    summary.index = pd.RangeIndex(1, len(summary) + 1, step=1, name="index")
-    correlation = results["correlation"]
-    return summary, correlation
+    correlation_ts = results.get("correlation", pd.DataFrame())
+    return summary, correlation_ts
 
 
 def show(results: Dict[str, Dict], test_key: Optional[str] = None, width: str = "100%"):
+    import matplotlib.pyplot as plt
+    import numpy as np
+    import pandas as pd
+    from IPython.display import display, Markdown
+    import seaborn as sns
 
-    # ---------------- helpers ----------------
     def _ensure_dt_index(df: pd.DataFrame) -> pd.DataFrame:
         if df is None or getattr(df, "empty", True):
             return df
@@ -689,151 +688,14 @@ def show(results: Dict[str, Dict], test_key: Optional[str] = None, width: str = 
             out[c] = pd.to_numeric(out[c], errors="coerce")
         return out
 
-    def _coerce_columns_to_str(df: pd.DataFrame) -> pd.DataFrame:
-        if df is None or getattr(df, "empty", True):
-            return df
-        out = df.copy()
-        if isinstance(out.columns, pd.MultiIndex):
-            out.columns = pd.MultiIndex.from_tuples(
-                [(str(a), str(b)) for a, b in out.columns]
-            )
-        else:
-            out.columns = out.columns.map(str)
-        return out
-
-    def _split_raw_inc(df: pd.DataFrame):
-        if df is None or df.empty:
-            return None, None
-
-        df = _coerce_columns_to_str(df)
-
-        if isinstance(df.columns, pd.MultiIndex):
-            lvl0 = df.columns.get_level_values(0)
-            raw = df.loc[:, lvl0.str.contains("raw", case=False, na=False)]
-            inc = df.loc[:, lvl0.str.contains("inc", case=False, na=False)]
-            raw = raw.droplevel(0, axis=1) if not raw.empty else None
-            inc = inc.droplevel(0, axis=1) if not inc.empty else None
-            # 若 level0 并非 raw/inc，而是别的（比如 test 名），兜底：整体当 raw
-            if raw is None and inc is None:
-                raw = df
-            return raw, inc
-
-        cols = pd.Index(df.columns)
-        has_raw = cols.str.contains("raw", case=False, na=False).any()
-        has_inc = cols.str.contains("inc", case=False, na=False).any()
-        if has_raw:
-            raw = df.loc[:, cols.str.contains("raw", case=False, na=False)]
-        else:
-            raw = None
-        if has_inc:
-            inc = df.loc[:, cols.str.contains("inc", case=False, na=False)]
-        else:
-            inc = None
-        if raw is None and inc is None:
-            raw = df
-        return raw, inc
-
-    def _plot_timeseries(
-        df: pd.DataFrame, title: str, y_title: str = "", height: int = 340
-    ):
-        df = _ensure_dt_index(_to_numeric_df(df))
-        fig = go.Figure()
-        for c in df.columns:
-            fig.add_trace(go.Scatter(x=df.index, y=df[c], mode="lines", name=str(c)))
-        fig.update_layout(
-            title=title,
-            height=height,
-            template="plotly_white",
-            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
-            margin=dict(l=10, r=10, t=60, b=10),
-        )
-        fig.update_yaxes(title=y_title, zeroline=True)
-        return fig
-
-    def _plot_ic_panel(ic_df: pd.DataFrame, title: str):
-        ic_df = _ensure_dt_index(_to_numeric_df(ic_df))
-        cols_ic = [c for c in ic_df.columns if "cumsum" not in str(c).lower()]
-        cols_cs = [c for c in ic_df.columns if "cumsum" in str(c).lower()]
-        fig = make_subplots(
-            rows=2,
-            cols=1,
-            shared_xaxes=True,
-            vertical_spacing=0.08,
-            subplot_titles=("IC", "IC Cumsum"),
-        )
-        for c in cols_ic:
-            fig.add_trace(
-                go.Scatter(x=ic_df.index, y=ic_df[c], mode="lines", name=str(c)),
-                row=1,
-                col=1,
-            )
-        for c in cols_cs:
-            fig.add_trace(
-                go.Scatter(x=ic_df.index, y=ic_df[c], mode="lines", name=str(c)),
-                row=2,
-                col=1,
-            )
-
-        fig.add_hline(
-            y=0, line_width=1, line_dash="dot", line_color="gray", row=1, col=1
-        )
-        fig.update_layout(
-            title=title,
-            height=540,
-            template="plotly_white",
-            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
-            margin=dict(l=10, r=10, t=70, b=10),
-        )
-        return fig
-
-    def _parse_rank(x):
-        import re
-
-        s = str(x)
-        m = re.findall(r"\d+", s)
-        return int(m[-1]) if m else None
-
-    def _make_long_short(group_values: pd.DataFrame):
-        if group_values is None or group_values.empty:
-            return None
-        gv = _ensure_dt_index(_to_numeric_df(group_values))
-        cols = list(gv.columns)
-        ranks = [_parse_rank(c) for c in cols]
-        if all(r is None for r in ranks):
-            return None
-        order = np.argsort([r if r is not None else -(10**9) for r in ranks])
-        low_col = cols[order[0]]
-        high_col = cols[order[-1]]
-        ls = gv[high_col] - gv[low_col]
-        return pd.DataFrame({f"LS({high_col}-{low_col})": ls})
-
-    def _mean_return_bar(group_values: pd.DataFrame, title: str, height: int = 320):
-        gv = _ensure_dt_index(_to_numeric_df(group_values))
-        rets = gv.pct_change()
-        mean_ret = rets.mean().dropna()
-        fig = px.bar(
-            x=mean_ret.index.astype(str),
-            y=mean_ret.values,
-            title=title,
-            labels={"x": "Group", "y": "Mean Return"},
-            height=height,
-        )
-        fig.update_layout(template="plotly_white", margin=dict(l=10, r=10, t=60, b=10))
-        return fig
-
     def _display_table(df: pd.DataFrame, title: str):
-        display(Markdown(f"### {title}"))
+        display(Markdown(f"## {title}"))
         if df is None or getattr(df, "empty", True):
             display(Markdown("*(empty)*"))
             return
-        sty = df.style.format(precision=4, na_rep="—")
-        sty = sty.set_properties(**{"text-align": "right"})
-        display(sty)
+        display(df.style.format(precision=4, na_rep="—"))
 
-    def _display_fig(fig):
-        fig.show()
-
-    # ---------------- notebook wide ----------------
+    # notebook width
     display(
         Markdown(
             f"""
@@ -843,190 +705,430 @@ def show(results: Dict[str, Dict], test_key: Optional[str] = None, width: str = 
 """
         )
     )
+    display(Markdown("# Factor Evaluation Results"))
 
-    summary, corr = _clean(results)
-    # ---------------- show summary first ----------------
-    _display_table(summary, "Summary")
+    summary, corr_ts = _clean(results)
+    _display_table(summary, "0. Summary")
 
-    # ---------------- choose which tests to show ----------------
+    # test keys
     test_keys = [k for k in results.keys() if k not in ("correlation", "summary")]
-    if not test_keys:
-        display(Markdown("*(no tests to show)*"))
-        return
-
     if test_key is not None:
         if test_key not in results:
-            raise KeyError(
-                f"test_key={test_key} not in results, available={list(results.keys())}"
-            )
+            raise KeyError(f"test_key={test_key} not in results")
         test_keys = [test_key]
 
-    # ---------------- per test ----------------
-    for tk in test_keys:
-        res = results[tk]
-        rr = res.get("raw", {})
-        ri = res.get("inc", None)
+    # correlation mean matrix for heatmap
+    corr_mean = None
+    if isinstance(corr_ts, pd.DataFrame) and not corr_ts.empty:
+        # corr_ts: index (date, factor1), columns factor2
+        corr_mean = corr_ts.groupby(level=1).mean()
+        corr_mean = corr_mean.reindex(corr_mean.columns)
 
-        display(Markdown(f"# {tk}"))
+    def _plot_ic(ic: pd.DataFrame, title: str):
+        ic = _ensure_dt_index(_to_numeric_df(ic))
+        if ic is None or ic.empty:
+            display(Markdown("*(IC empty)*"))
+            return
+
+        n = ic.shape[1]
+        fig, axes = plt.subplots(n, 1, figsize=(14, 3.2 * n), sharex=True)
+        if n == 1:
+            axes = [axes]
+
+        for ax, col in zip(axes, ic.columns):
+            s = ic[col].dropna()
+            if s.empty:
+                continue
+            cs = s.cumsum()
+
+            ax.plot(s.index, s.values, color="tab:blue", linewidth=1.0, label="IC")
+            ax.axhline(0, color="gray", linestyle="--", linewidth=0.8)
+            ax.set_ylabel("Daily IC")
+
+            ax2 = ax.twinx()
+            ax2.plot(
+                cs.index,
+                cs.values,
+                color="tab:orange",
+                linewidth=1.2,
+                label="Cumsum IC",
+            )
+            ax2.set_ylabel("Cumsum IC")
+
+            ax.set_title(f"{title} | {col}")
+            # combined legend
+            lines = ax.get_lines() + ax2.get_lines()
+            labels = [l.get_label() for l in lines]
+            ax.legend(lines, labels, loc="upper left", frameon=False)
+
+        plt.tight_layout()
+        plt.show()
+    
+    def _plot_ic_hist(ic: pd.DataFrame, title: str):
+        ic = _ensure_dt_index(_to_numeric_df(ic))
+        if ic is None or ic.empty:
+            display(Markdown("*(IC empty)*"))
+            return
+
+        n = ic.shape[1]
+        fig, axes = plt.subplots(n, 1, figsize=(10, 3.2 * n))
+        if n == 1:
+            axes = [axes]
+
+        for ax, col in zip(axes, ic.columns):
+            s = ic[col].dropna()
+            if s.empty:
+                continue
+
+            sns.histplot(s.values, bins=30, kde=True, ax=ax, color="tab:blue")
+            ax.set_title(f"{title} | {col}")
+            ax.set_xlabel("IC Value")
+            ax.set_ylabel("Frequency")
+
+        plt.tight_layout()
+        plt.show()
+
+    def _plot_group_return_box(
+        raw_gr: pd.DataFrame, inc_gr: Optional[pd.DataFrame], title: str
+    ):
+        # gr: date x columns (group returns)
+        raw_gr = _ensure_dt_index(_to_numeric_df(raw_gr))
+        inc_gr = (
+            _ensure_dt_index(_to_numeric_df(inc_gr)) if inc_gr is not None else None
+        )
+        if raw_gr is None or raw_gr.empty:
+            display(Markdown("*(group_returns empty)*"))
+            return
+
+        groups = list(raw_gr.columns)
+        data = []
+        positions = []
+        labels = []
+        width = 0.35
+
+        for i, g in enumerate(groups):
+            r = raw_gr[g].dropna().values
+            data.append(r)
+            positions.append(i - width / 2)
+            labels.append((g, "raw"))
+            if inc_gr is not None and g in inc_gr.columns:
+                r2 = inc_gr[g].dropna().values
+                data.append(r2)
+                positions.append(i + width / 2)
+                labels.append((g, "inc"))
+
+        fig, ax = plt.subplots(figsize=(14, 5))
+        bp = ax.boxplot(
+            data,
+            positions=positions,
+            widths=0.28,
+            patch_artist=True,
+            showfliers=False,
+        )
+        
+        # color raw/inc
+        for patch, lab in zip(bp["boxes"], labels):
+            patch.set_facecolor("tab:blue" if lab[1] == "raw" else "tab:orange")
+            patch.set_alpha(0.45)
+
+        ax.axhline(0, color="gray", linestyle="--", linewidth=0.8)
+        ax.set_title(title)
+        ax.set_ylabel("Group Return")
+        ax.set_xticks(range(len(groups)))
+        ax.set_xticklabels([str(g) for g in groups], rotation=0)
+        ax.tick_params(axis="x", labelrotation=45)
+
+        # manual legend
+        handles = []
+        from matplotlib.patches import Patch
+
+        handles.append(Patch(facecolor="tab:blue", alpha=0.45, label="raw"))
+        if inc_gr is not None:
+            handles.append(Patch(facecolor="tab:orange", alpha=0.45, label="inc"))
+        ax.legend(handles=handles, frameon=False, loc="upper left")
+
+        plt.tight_layout()
+        plt.show()
+
+    def _plot_group_values(gv: pd.DataFrame, title: str):
+        gv = _ensure_dt_index(_to_numeric_df(gv))
+        if gv is None or gv.empty:
+            display(Markdown("*(group_values empty)*"))
+            return
+        fig, ax = plt.subplots(figsize=(14, 5))
+        for c in gv.columns:
+            ax.plot(gv.index, gv[c], linewidth=1.0, label=str(c))
+        ax.set_title(title)
+        ax.set_ylabel("NAV")
+        ax.legend(ncol=5, frameon=False, fontsize=9)
+        plt.tight_layout()
+        plt.show()
+
+    def _plot_corr_heatmap(corr_mean: pd.DataFrame, title: str):
+        if corr_mean is None or corr_mean.empty:
+            display(Markdown("*(correlation empty)*"))
+            return
+        fig, ax = plt.subplots(figsize=(12, 10))
+        mat = corr_mean.values.astype(float)
+        sns.heatmap(
+            corr_mean,
+            ax=ax,
+            cmap="RdBu_r",
+            vmin=-1,
+            vmax=1,
+            center=0,
+            square=True,
+            cbar_kws={"shrink": 0.8},
+        )
+        ax.set_title(title)
+        plt.tight_layout()
+        plt.show()
+
+    def _corr_pairs_long(corr_ts: pd.DataFrame) -> pd.DataFrame:
+        # corr_ts: (date, factor1) x factor2 -> long (date, pair, corr)
+        if corr_ts is None or corr_ts.empty:
+            return pd.DataFrame()
+        df = corr_ts.copy()
+        df.index = df.index.set_names(["date", "factor1"])
+        long = (
+            df.stack()
+            .rename("corr")
+            .reset_index()
+            .rename(columns={"level_2": "factor2"})
+        )
+        # remove diagonal and keep factor1<factor2 to avoid duplicates
+        long = long[long["factor1"] != long["factor2"]].copy()
+        # stable pair name
+        a = long["factor1"].astype(str)
+        b = long["factor2"].astype(str)
+        long["pair"] = np.where(a < b, a + " ~ " + b, b + " ~ " + a)
+        long = long.drop(columns=["factor1", "factor2"]).drop_duplicates(
+            subset=["date", "pair"]
+        )
+        return long
+
+    def _plot_corr_box(corr_ts: pd.DataFrame, title: str, max_pairs: int = 60):
+        long = _corr_pairs_long(corr_ts)
+        if long.empty:
+            display(Markdown("*(correlation empty)*"))
+            return
+
+        # pairs too many -> keep highest |mean|
+        stat = long.groupby("pair")["corr"].mean().abs().sort_values(ascending=False)
+        keep = stat.head(max_pairs).index
+        long = long[long["pair"].isin(keep)]
+
+        # pivot to list of arrays for boxplot
+        pairs = list(keep)
+        data = [long.loc[long["pair"] == p, "corr"].dropna().values for p in pairs]
+
+        fig, ax = plt.subplots(figsize=(14, 6))
+        ax.boxplot(data, showfliers=False)
+        ax.axhline(0, color="gray", linestyle="--", linewidth=0.8)
+        ax.set_title(title)
+        ax.set_ylabel("Correlation")
+        ax.set_xticks(np.arange(1, len(pairs) + 1))
+        ax.set_xticklabels(pairs, rotation=90, fontsize=8)
+        plt.tight_layout()
+        plt.show()
+
+    # per test show
+    for i, tk in enumerate(test_keys, start=1):
+        res = results[tk]
+        rr = res.get("raw") or {}
+        ri = res.get("inc")
+
+        display(Markdown(f"# {i}. {tk}"))
 
         # 1) IC
-        ic_raw = pd.concat(
-            [rr.get("ic_raw")] + ([] if ri is None else [ri.get("ic_raw")]),
-            axis=1,
-        )
-        ic_raw = _ensure_dt_index(ic_raw)
-        display(Markdown("## IC"))
-        if ic_raw is None or ic_raw.empty:
-            display(Markdown("*(empty)*"))
-        else:
-            ic_raw = pd.concat([ic_raw, ic_raw.cumsum().add_suffix("_cumsum")], axis=1)
-            _display_fig(_plot_ic_panel(ic_raw, title=f"{tk} | IC & Cumsum"))
-        # 2) Group values (raw/inc 都画)
-        group_values = pd.concat(
-            [rr.get("group_values")] + ([] if ri is None else [ri.get("group_values")]),
-            axis=1,
-        )
-        group_values = _ensure_dt_index(group_values)
-        display(Markdown("## 分层净值（Group Values）"))
+        display(Markdown(f"## {i}.1 IC 分析"))
+        display(Markdown(f"### {i}.1.1 IC 时序图"))
+        _plot_ic(rr.get("ic_raw"), title=f"{tk} | IC (raw)")
+        if ri is not None:
+            _plot_ic(ri.get("ic_raw"), title=f"{tk} | IC (inc)")
+        display(Markdown(f"### {i}.1.2 频率分布直方图"))
+        _plot_ic_hist(rr.get("ic_raw"), title=f"{tk} | IC Histogram (raw)")
+        if ri is not None:
+            _plot_ic_hist(ri.get("ic_raw"), title=f"{tk} | IC Histogram (inc)")
 
-        if group_values is None or group_values.empty:
-            display(Markdown("*(empty)*"))
-        else:
-            gv_raw, gv_inc = _split_raw_inc(group_values)
+        # 2) Grouping
+        display(Markdown(f"## {i}.2 分组收益分析"))
+        display(Markdown(f"### {i}.2.1 分组回报箱线图"))
+        raw_gr = rr.get("group_returns")
+        inc_gr = None if ri is None else ri.get("group_returns")
+        _plot_group_return_box(raw_gr, inc_gr, title=f"{tk} | Group Returns Boxplot")
 
-            # raw
-            if gv_raw is not None and not gv_raw.empty:
-                _display_fig(
-                    _plot_timeseries(gv_raw, f"{tk} | Group NAV (raw)", y_title="NAV")
-                )
-                ls = _make_long_short(gv_raw)
-                if ls is not None:
-                    _display_fig(
-                        _plot_timeseries(
-                            ls,
-                            f"{tk} | Long-Short NAV (raw)",
-                            y_title="NAV",
-                            height=300,
-                        )
-                    )
-                _display_fig(
-                    _mean_return_bar(gv_raw, f"{tk} | Mean Return by Group (raw)")
-                )
+        display(Markdown(f"### {i}.2.2 分组累积收益图（Group NAV）"))
+        _plot_group_values(rr.get("group_values"), title=f"{tk} | Group NAV (raw)")
+        if ri is not None:
+            _plot_group_values(ri.get("group_values"), title=f"{tk} | Group NAV (inc)")
 
-            # inc
-            if gv_inc is not None and not gv_inc.empty:
-                _display_fig(
-                    _plot_timeseries(gv_inc, f"{tk} | Group NAV (inc)", y_title="NAV")
-                )
-                ls = _make_long_short(gv_inc)
-                if ls is not None:
-                    _display_fig(
-                        _plot_timeseries(
-                            ls,
-                            f"{tk} | Long-Short NAV (inc)",
-                            y_title="NAV",
-                            height=300,
-                        )
-                    )
-                _display_fig(
-                    _mean_return_bar(gv_inc, f"{tk} | Mean Return by Group (inc)")
-                )
+    # 3) Correlation
+    display(Markdown(f"# {i + 1} 相关性分析"))
+    display(Markdown(f"# {i + 1}.1 相关性热力图（时序均值）"))
+    _plot_corr_heatmap(corr_mean, title="Correlation Heatmap (mean over time)")
 
-        # 3) Group performance（raw/inc 都展示：拆开更直观）
-        group_performance = pd.concat(
-            [rr.get("group_performance")]
-            + ([] if ri is None else [ri.get("group_performance")]),
-            axis=1,
-        )
-        display(Markdown("## 分层绩效评估（Group Performance）"))
-
-        if group_performance is None or group_performance.empty:
-            display(Markdown("*(empty)*"))
-        else:
-            gp_raw, gp_inc = _split_raw_inc(group_performance)
-
-            if gp_raw is not None and not gp_raw.empty:
-                _display_table(gp_raw, "Group Performance (raw)")
-            else:
-                # 如果没法 split（比如没有 raw/inc 标识），就整体展示一次
-                _display_table(group_performance, "Group Performance")
-
-            if gp_inc is not None and not gp_inc.empty:
-                _display_table(gp_inc, "Group Performance (inc)")
-
-    # 4) correlation
-    corr_df = None
-    if isinstance(corr, pd.DataFrame):
-        corr_df = corr
-    if corr_df is not None and not corr_df.empty:
-        display(Markdown("# Correlation"))
-        fig = px.imshow(
-            corr_df.values,
-            x=corr_df.columns.astype(str),
-            y=corr_df.index.astype(str),
-            color_continuous_scale="RdBu",
-            zmin=-1,
-            zmax=1,
-            title="Correlation Heatmap",
-            height=520,
-        )
-        fig.update_layout(
-            template="plotly_white", margin=dict(l=10, r=10, t=70, b=10)
-        )
-        fig.show()
+    # 5) 相关性箱线图（使用时序相关性序列）
+    display(Markdown(f"# {i + 1}.2 相关性箱线图（时序分布）"))
+    _plot_corr_box(corr_ts, title="Correlation Boxplot (pairwise over time)")
 
 
 def save(save_path: Union[Path, str], results: Dict[str, Dict]):
-    summary, correlation = _clean(results)
+    from openpyxl.utils import get_column_letter
+    from openpyxl.formatting.rule import ColorScaleRule
+    from openpyxl.chart import BarChart, LineChart, Reference
+    from openpyxl.drawing.line import LineProperties
+
+    summary, corr_ts = _clean(results)
+
+    # ---- add group return mean ----
+    if summary is not None and not summary.empty:
+        # build mapping for quick access
+        # results[test_key][restype]["group_returns"] : date x columns
+        group_mean_rows = []
+        for _, row in summary[["test_key", "factor", "restype"]].iterrows():
+            tk = row["test_key"]
+            fac = row["factor"]
+            rt = row["restype"]
+            rr = results[tk].get(rt)
+            if rr is None:
+                group_mean_rows.append({})
+                continue
+            gr = rr.get("group_returns")
+            if gr is None or gr.empty:
+                group_mean_rows.append({})
+                continue
+            # pick group columns for this factor (fac(1..n))
+            cols = [c for c in gr.columns if str(c).startswith(f"{fac}(")]
+            d = {}
+            if cols:
+                m = gr[cols].mean()
+                for c, v in m.items():
+                    d[f"{c}_mean"] = float(v)
+            group_mean_rows.append(d)
+
+        group_mean_df = pd.DataFrame(group_mean_rows)
+        summary_out = pd.concat([summary.reset_index(drop=True), group_mean_df], axis=1)
+    else:
+        summary_out = summary
+
+    # ---- correlation mean matrix for conditional format & heatmap-like table ----
+    corr_mean = None
+    if isinstance(corr_ts, pd.DataFrame) and not corr_ts.empty:
+        corr_mean = corr_ts.groupby(level=1).mean().reindex(corr_ts.columns, axis=1)
+
+    # ---- correlation full time series wide (pair columns) ----
+    def _corr_ts_to_pair_wide(corr_ts: pd.DataFrame) -> pd.DataFrame:
+        if corr_ts is None or corr_ts.empty:
+            return pd.DataFrame()
+        df = corr_ts.copy()
+        df.index = df.index.set_names(["date", "factor1"])
+        long = (
+            df.stack()
+            .rename("corr")
+            .reset_index()
+            .rename(columns={"level_2": "factor2"})
+        )
+        long = long[long["factor1"] != long["factor2"]].copy()
+        a = long["factor1"].astype(str)
+        b = long["factor2"].astype(str)
+        long["pair"] = np.where(a < b, a + " ~ " + b, b + " ~ " + a)
+        long = long.drop(columns=["factor1", "factor2"]).drop_duplicates(
+            subset=["date", "pair"]
+        )
+        wide = long.pivot(index="date", columns="pair", values="corr").sort_index()
+        return wide
+
+    corr_pair_wide = _corr_ts_to_pair_wide(corr_ts)
+
     with pd.ExcelWriter(save_path, engine="openpyxl") as writer:
-        # Drawing charts in original excel file
         wb = writer.book
 
-        summary.to_excel(writer, sheet_name="summary", index=False)
+        # 1) summary
+        summary_out.to_excel(writer, sheet_name="summary", index=False)
 
-        # Add average group return bar chart
-        ws = wb[f"summary"]
-        bar = BarChart()
-        bar.width = 30
-        bar.height = 20
-        bar.type = "col"
-        bar.title = f"Average Return For Each Group"
-        bar.y_axis.title = "Return"
-        bar.x_axis.title = "Group"
+        # 1.1) summary: 分组均值 bar chart（如果存在 *_mean 列）
+        ws = wb["summary"]
+        mean_cols = [c for c in summary_out.columns if str(c).endswith(")_mean")]
+        if mean_cols:
+            # chart data range
+            header_row = 1
+            first_col = (
+                summary_out.columns.get_loc(mean_cols[0]) + 1
+            )  # excel is 1-based
+            last_col = summary_out.columns.get_loc(mean_cols[-1]) + 1
 
-        raw_data = Reference(
-            ws,
-            min_col=32,
-            max_col=ws.max_column - 1,
-            min_row=1,
-            max_row=ws.max_row,
-        )
-        cats = Reference(ws, min_col=1, min_row=2, max_row=ws.max_row)
-        bar.add_data(raw_data, titles_from_data=True)
-        bar.set_categories(cats)
-        bar.gapWidth = 50
-        ws.add_chart(bar, f"A{len(summary) + 3}")
+            bar = BarChart()
+            bar.width = 30
+            bar.height = 15
+            bar.type = "col"
+            bar.title = "Average Return For Each Group (means)"
+            bar.y_axis.title = "Return"
+            bar.x_axis.title = "Row"
 
-        correlation.to_excel(writer, sheet_name="correlation")
-        # Correlation rule color
-        ws = wb[f"correlation"]
-        min_row, min_col = 2, 2
-        max_row, max_col = ws.max_row, ws.max_column
-        rule = ColorScaleRule(
-            start_type="num",
-            start_value=-1,
-            start_color="2F5597",
-            mid_type="num",
-            mid_value=0,
-            mid_color="FFFFFF",
-            end_type="num",
-            end_value=1,
-            end_color="C00000",
-        )
-        cell_range = f"{get_column_letter(min_col)}{min_row}:{get_column_letter(max_col)}{max_row}"
-        ws.conditional_formatting.add(cell_range, rule)
-        ws.freeze_panes = "B2"
+            data = Reference(
+                ws,
+                min_col=first_col,
+                max_col=last_col,
+                min_row=header_row,
+                max_row=ws.max_row,
+            )
+            cats = Reference(
+                ws, min_col=1, min_row=2, max_row=ws.max_row
+            )  # index or first column
+            bar.add_data(data, titles_from_data=True)
+            bar.set_categories(cats)
+            bar.gapWidth = 50
+            ws.add_chart(bar, f"A{ws.max_row + 3}")
 
+        # 2) correlation mean matrix sheet
+        if corr_mean is not None and not corr_mean.empty:
+            corr_mean.to_excel(writer, sheet_name="correlation_mean")
+
+            ws = wb["correlation_mean"]
+            rule = ColorScaleRule(
+                start_type="num",
+                start_value=-1,
+                start_color="2F5597",
+                mid_type="num",
+                mid_value=0,
+                mid_color="FFFFFF",
+                end_type="num",
+                end_value=1,
+                end_color="C00000",
+            )
+            min_row, min_col = 2, 2
+            max_row, max_col = ws.max_row, ws.max_column
+            cell_range = f"{get_column_letter(min_col)}{min_row}:{get_column_letter(max_col)}{max_row}"
+            ws.conditional_formatting.add(cell_range, rule)
+            ws.freeze_panes = "B2"
+
+        # 3) correlation full time series wide + boxplot
+        if corr_pair_wide is not None and not corr_pair_wide.empty:
+            corr_pair_wide.to_excel(writer, sheet_name="correlation_ts")
+
+            # 尝试添加箱线图（openpyxl版本若不支持则跳过）
+            try:
+                from openpyxl.chart import BoxWhiskerChart
+
+                ws = wb["correlation_ts"]
+                chart = BoxWhiskerChart()
+                chart.title = "Correlation (pairwise) Boxplot"
+                chart.style = 2
+                chart.y_axis.title = "Correlation"
+
+                # 数据区域：从第2列开始（第1列是date index）
+                max_row = ws.max_row
+                max_col = ws.max_column
+                data = Reference(
+                    ws, min_col=2, min_row=1, max_col=max_col, max_row=max_row
+                )
+                chart.add_data(data, titles_from_data=True)
+                ws.add_chart(chart, f"A{max_row + 3}")
+            except Exception:
+                pass
+
+        # 4) per test: keep your original exports (IC/group_value/performance)
         for i, (test_key, res) in enumerate(results.items(), start=1):
             if test_key == "correlation":
                 continue
@@ -1040,8 +1142,11 @@ def save(save_path: Union[Path, str], results: Dict[str, Dict]):
             )
             ic_raw = pd.concat([ic_raw, ic_raw.cumsum().add_suffix("_cumsum")], axis=1)
             ic_raw.to_excel(writer, sheet_name=f"info_coef_{i}")
-            # IC bar chart + line chart
-            factor_cols = ic_raw.columns[~ic_raw.columns.str.endswith("_cumsum")]
+
+            # IC chart
+            factor_cols = ic_raw.columns[
+                ~ic_raw.columns.astype(str).str.endswith("_cumsum")
+            ]
             ws = wb[f"info_coef_{i}"]
             for ii, col in enumerate(factor_cols):
                 bar = BarChart()
@@ -1053,11 +1158,7 @@ def save(save_path: Union[Path, str], results: Dict[str, Dict]):
                 bar.x_axis.title = "Date"
 
                 raw_data = Reference(
-                    ws,
-                    min_col=2 + ii,
-                    max_col=2 + ii,
-                    min_row=1,
-                    max_row=ws.max_row,
+                    ws, min_col=2 + ii, max_col=2 + ii, min_row=1, max_row=ws.max_row
                 )
                 cats = Reference(ws, min_col=1, min_row=2, max_row=ws.max_row)
                 bar.add_data(raw_data, titles_from_data=True)
@@ -1076,66 +1177,18 @@ def save(save_path: Union[Path, str], results: Dict[str, Dict]):
                 for s in line.series:
                     s.graphicalProperties.line = LineProperties(w=int(1 * 12700))
                 line.set_categories(cats)
-
                 line.y_axis.axId = 200
                 line.y_axis.crosses = "max"
                 line.y_axis.title = "Cumulative IC"
-
                 bar += line
                 ws.add_chart(bar, f"B{2 + 50*ii}")
 
-            # Group Data
+            # Group values
             group_values = pd.concat(
                 [rr["group_values"]] + ([] if ri is None else [ri["group_values"]]),
                 axis=1,
             )
             group_values.to_excel(writer, sheet_name=f"group_value_{i}")
-            # Group value line chart
-            ws = wb[f"group_value_{i}"]
-            max_row = ws.max_row
-            max_col = ws.max_column
-            n = group_values.shape[1] // len(factor_cols) - 1
-            for ii, fcol in enumerate(factor_cols):
-                chart = LineChart()
-                chart.width = 30
-                chart.height = 20
-                chart.title = f"{fcol} Group Net Value"
-                chart.y_axis.title = "Net Value"
-
-                cats = Reference(ws, min_col=1, min_row=2, max_row=max_row)
-
-                data = Reference(
-                    ws,
-                    min_col=ii * n + 2 + ii,
-                    min_row=1,
-                    max_col=(ii + 1) * n + 1,
-                    max_row=max_row,
-                )
-
-                chart.add_data(data, titles_from_data=True)
-                for s in chart.series:
-                    s.graphicalProperties.line = LineProperties(w=int(1 * 12700))
-                chart.set_categories(cats)
-
-                chart_right = LineChart()
-                data = Reference(
-                    ws,
-                    min_col=(ii + 1) * n + 2 + ii,
-                    min_row=1,
-                    max_col=(ii + 1) * n + 2 + ii,
-                    max_row=max_row,
-                )
-                chart_right.add_data(data, titles_from_data=True)
-                chart_right.set_categories(cats)
-                for s in chart_right.series:
-                    s.graphicalProperties.line = LineProperties(w=int(1 * 12700))
-
-                chart_right.y_axis.axId = 200
-                chart_right.y_axis.crosses = "max"
-                chart_right.y_axis.title = "Cumulative IC"
-
-                chart += chart_right
-                ws.add_chart(chart, f"B{2 + 50*ii}")
 
             # Group performance
             group_performance = pd.concat(

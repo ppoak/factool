@@ -32,6 +32,7 @@ dependencies = [
     "statsmodels>=0.14.5",
     "jupyterlab>=4.4.10",
     "plotly>=6.5.2",
+    "seaborn>=0.13.2",
 ]
 
 [tool.setuptools]
