@@ -1,13 +1,10 @@
 import re
 from functools import partial
-from typing import Union, Literal, Iterable, Tuple, Dict, List, Optional
+from typing import Union, Iterable, Tuple, Dict, List, Optional
 
 import pandas as pd
 
 from parquool import DuckPQ
-
-from .oprator import Operator
-from .util import get_ealiest_date, get_latest_date
 
 
 def parse_factor_path(path: str, sep: str = "/") -> Tuple[str, str, Optional[str]]:
@@ -167,8 +164,8 @@ class DuckPQSource(DuckPQ):
             self.register(t)
 
         # ---- compute lookback/lookforward bounds (based on base_table calendar) ----
-        begin_for_sql = begin or get_ealiest_date(self, base_table)
-        end_for_sql = end or get_latest_date(self, base_table)
+        begin_for_sql = begin or self.get_ealiest_date(base_table)
+        end_for_sql = end or self.get_latest_date(base_table)
         if pad_begin > 0:
             sql_begin_lb = f"""
             WITH cal AS (
@@ -376,3 +373,50 @@ class DuckPQSource(DuckPQ):
             keys=[self.time_col, self.code_col],
             partition_by=["date"],
         )
+
+    def get_latest_date(self, table: str):
+        self.register(table)
+        if self.tables[table].empty:
+            return
+        date = self.query(f"SELECT MAX({self.time_col}) FROM {table}").squeeze()
+        return date
+
+    def get_ealiest_date(self, table: str):
+        self.register(table)
+        if self.tables[table].empty:
+            return
+        date = self.query(f"SELECT MIN({self.time_col}) FROM {table}").squeeze()
+        return date
+
+    def get_date_gap(
+        self,
+        target_table: str,
+        base_table: str,
+        default: str = "1900-01-01",
+    ):
+        target_latest = self.get_latest_date(target_table) or default
+        base_latest = self.get_latest_date(base_table) or default
+        return target_latest, base_latest
+
+    def get_date_range(
+        self,
+        date: str,
+        n: int = 1,
+        table: str = "quotes_day",
+    ):
+        self.register(table)
+        rollback = (
+            self.query(
+                f"""
+            SELECT DISTINCT {self.time_col} AS datetime
+            FROM {table}
+            WHERE {self.time_col} {'<' if n > 0 else '>'} '{date}'::DATE
+            ORDER BY datetime {'DESC' if n > 0 else 'ASC'}
+            LIMIT {abs(n)}
+            """
+            )
+            .squeeze()
+            .sort_values()
+            .reset_index(drop=True)
+        )
+        return rollback
