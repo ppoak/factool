@@ -36,7 +36,7 @@ dependencies = [
 ]
 
 [tool.setuptools]
-packages = ["factool"]
+packages = ["facttool"]
 
 [project.urls]
 Homepage = "https://github.com/ppoak/factool"
