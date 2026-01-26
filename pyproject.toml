@@ -40,7 +40,3 @@ packages = ["facttool"]
 
 [project.urls]
 Homepage = "https://github.com/ppoak/factool"
-
-[[tool.uv.index]]
-url = "https://pypi.tuna.tsinghua.edu.cn/simple"
-default = true
