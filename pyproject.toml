@@ -4,16 +4,16 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "factool"
-version = "0.3.1"
+version = "0.0.1"
 description = "Factor tool is a quant framework for factor research."
 readme = { file = "README.md", content-type = "text/markdown" }
 authors = [
     { name = "ppoak", email = "ppoak@foxmail.com" }
 ]
+license = "MIT"
 keywords = ["quant", "factor analysis", "finance"]
 classifiers = [
     "Programming Language :: Python :: 3",
-    "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
 ]
 requires-python = ">=3.11"
