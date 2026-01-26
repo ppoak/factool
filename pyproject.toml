@@ -3,7 +3,7 @@ requires = ["setuptools>=64", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "factool"
+name = "facttool"
 version = "0.0.1"
 description = "Factor tool is a quant framework for factor research."
 readme = { file = "README.md", content-type = "text/markdown" }
